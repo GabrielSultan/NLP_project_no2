@@ -36,7 +36,7 @@ def preprocess_text(text, stopwords, stemmer):
     text = str(text).lower()
     text = "".join(c for c in text if c not in punctuation)
     tokens = nltk.word_tokenize(text)
-    tokens = [t for t in tokens if t not in stopwords and len(t) > 1]
+    tokens = [t for t in tokens if t not in stopwords and len(t) > 1 and not any(c.isdigit() for c in t)]
     return " ".join(stemmer.stem(t) for t in tokens)
 
 def main():
