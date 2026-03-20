@@ -1,1 +1,4 @@
 data/
+
+# Large RAG vector store (rebuild with scripts/build_rag_index.py)
+artifacts/rag/

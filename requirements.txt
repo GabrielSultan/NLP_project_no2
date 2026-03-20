@@ -27,5 +27,8 @@ shap>=0.42.0
 # Application
 streamlit>=1.25.0
 
-# Optional: RAG/QA
+# RAG / semantic search
+sentence-transformers>=2.2.0
+
+# Optional: RAG orchestration helpers
 langchain>=0.1.0
