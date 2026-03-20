@@ -28,22 +28,24 @@ def load_artifacts():
     w2v = Word2Vec.load(os.path.join(ARTIFACTS_DIR, "w2v.model"))
     return prep, tfidf, clf, w2v
 
-def preprocess_text(text, stopwords, stemmer):
+def preprocess_text(text, stopwords):
     import nltk
+    import simplemma
     from string import punctuation
     if not text or not str(text).strip():
         return ""
     text = str(text).lower()
+    text = text.replace("'", " ")
     text = "".join(c for c in text if c not in punctuation)
     tokens = nltk.word_tokenize(text)
     tokens = [t for t in tokens if t not in stopwords and len(t) > 1 and not any(c.isdigit() for c in t)]
-    return " ".join(stemmer.stem(t) for t in tokens)
+    lemmas = [simplemma.lemmatize(t, lang="fr") or t for t in tokens]
+    return " ".join(lemmas)
 
 def main():
     st.title("Insurance Reviews - NLP Analysis")
     prep, tfidf, clf, w2v = load_artifacts()
     stopwords = prep["stopwords"]
-    stemmer = prep["stemmer"]
 
     tab1, tab2, tab3 = st.tabs(["Thematic Prediction", "Summary", "RAG / QA"])
 
@@ -52,7 +54,7 @@ def main():
         text_input = st.text_area("Enter a review (French):")
         if st.button("Predict thematic"):
             if text_input:
-                processed = preprocess_text(text_input, stopwords, stemmer)
+                processed = preprocess_text(text_input, stopwords)
                 X = tfidf.transform([processed])
                 pred = clf.predict(X)[0]
                 st.write(f"**Predicted thematic:** {pred}")

@@ -9,6 +9,7 @@ openpyxl>=3.0.0
 
 # NLP
 nltk>=3.8.0
+simplemma>=1.0.0
 snowballstemmer>=2.2.0
 gensim>=4.3.0
 scikit-learn>=1.2.0
