@@ -27,8 +27,8 @@ shap>=0.42.0
 # Application
 streamlit>=1.25.0
 
-# RAG / semantic search
+# RAG / semantic search (Streamlit app + rag_pipeline.py)
 sentence-transformers>=2.2.0
 
-# Optional: RAG orchestration helpers
-langchain>=0.1.0
+# Optional — not imported by app_streamlit or rag_pipeline (uncomment if you need it elsewhere)
+# langchain>=0.1.0
