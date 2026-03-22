@@ -22,6 +22,18 @@ import rag_pipeline as rag
 DATA_DIR = "data"
 ARTIFACTS_DIR = "artifacts"
 
+_ALL_INSURERS = "— Tous les assureurs —"
+
+
+@st.cache_data
+def insurer_choices_for_index(_mtime: float, artifacts_dir: str) -> list[str]:
+    """Insurers present in the current vector index (metadata), sorted."""
+    loaded = rag.load_index(artifacts_dir)
+    if loaded is None:
+        return []
+    _, _, meta, _ = loaded
+    return rag.unique_insurers_in_meta(meta)
+
 
 @st.cache_resource
 def load_rag_embedder():
@@ -85,6 +97,17 @@ def main():
         embeddings, chunks, meta, cfg = bundle
         st.success(f"RAG index ready — **{cfg.get('num_vectors', embeddings.shape[0])}** chunks.")
 
+        insurer_list = insurer_choices_for_index(mtime, ARTIFACTS_DIR)
+        if not insurer_list:
+            st.warning("No insurer names found in index metadata.")
+        insurer_choice = st.selectbox(
+            "Assureur (la recherche ne garde que les avis de cet assureur)",
+            options=[_ALL_INSURERS] + insurer_list,
+            index=0,
+            key="rag_insurer",
+        )
+        insurer_filter = None if insurer_choice == _ALL_INSURERS else insurer_choice
+
         question = st.text_input("Ask a question about the reviews:", key="rag_question")
         top_k = st.slider("Chunks to retrieve", min_value=3, max_value=12, value=5, key="rag_topk")
 
@@ -102,6 +125,7 @@ def main():
                             meta,
                             top_k=int(top_k),
                             embedder=embedder,
+                            insurer_filter=insurer_filter,
                         )
                     except RuntimeError as e:
                         st.error(str(e))
