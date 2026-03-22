@@ -1,6 +1,6 @@
 """
 RAG utilities: chunk reviews, embed with sentence-transformers, retrieve by cosine
-similarity, and answer with a seq2seq LLM (multilingual instruction-tuned mT0).
+similarity, then answer with a local Ollama chat model (llama3.2).
 """
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pickle
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -15,7 +16,10 @@ import pandas as pd
 
 # Multilingual model suited for French semantic search
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-DEFAULT_GEN_MODEL = "bigscience/mt0-base"
+
+# Ollama (fixed model for this project)
+OLLAMA_MODEL = "llama3.2"
+DEFAULT_OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 
 RAG_DIRNAME = "rag"
 
@@ -230,61 +234,85 @@ def _truncate_context(text: str, max_chars: int) -> str:
     return text[: max_chars - 3] + "..."
 
 
-def build_rag_prompt(question: str, retrieved: List[Dict[str, Any]], max_context_chars: int = 2200) -> str:
-    """
-    English task wording for mT0. Put the question before the excerpts so HF truncation (tail /
-    keep-prefix) does not drop the question on long contexts. Avoid quoting a fixed French
-    refusal in the prompt or seq2seq models often echo it.
-    """
+def _sanitize_generated_answer(text: str) -> str:
+    """Light cleanup of leading numbering or junk prefixes in model output."""
+    t = text.strip()
+    t = re.sub(r"^(?:Excerpt\s*\d+\s*[.:]?\s*)", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"^\d{1,2}\s*[.)]\s*", "", t)
+    t = re.sub(
+        r"^[—\-–]\s*Avis\s*\([^)]+\)\s*[.:]?\s*",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+    return t.strip()
+
+
+def build_ollama_user_message(question: str, retrieved: List[Dict[str, Any]], max_context_chars: int = 12000) -> str:
+    """User message for Ollama chat: French context + question."""
     parts = []
-    for i, item in enumerate(retrieved, start=1):
+    for item in retrieved:
         m = item["meta"]
-        parts.append(
-            f"Excerpt {i} (rating {m.get('note', '')}, insurer {m.get('assureur', '')}): {item['text']}"
-        )
+        ins = str(m.get("assureur", "") or "").strip() or "inconnu"
+        note = m.get("note", "")
+        parts.append(f"- {item['text']}\n  (assureur: {ins}, note: {note})")
     ctx = "\n".join(parts)
     ctx = _truncate_context(ctx, max_context_chars)
     return (
-        "Answer in French only. Use the excerpts below; be short and factual. "
-        "Do not repeat excerpt numbers or metadata. "
-        "If the excerpts are only partly related, still summarize what they say about the topic.\n\n"
-        f"Question: {question}\n\n"
-        f"Excerpts:\n{ctx}\n\n"
-        "Réponse en français:"
+        "Tu es analyste sur des avis clients d'assurance (textes en français).\n"
+        "À partir du contexte ci-dessous uniquement, réponds à la question en français.\n"
+        "Écris un paragraphe de 4 à 8 phrases : synthétise les thèmes (satisfaction, problèmes, délais, "
+        "téléphone, moto, etc.) sans inventer de faits absents du contexte.\n"
+        "Ne commence pas par une liste numérotée.\n\n"
+        f"Contexte :\n{ctx}\n\n"
+        f"Question : {question}"
     )
 
 
-def _safe_max_input_tokens(tokenizer: Any) -> int:
-    m = getattr(tokenizer, "model_max_length", None)
-    if m is None or m > 4096:
-        return 1024
-    return int(m)
-
-
-def generate_answer(
-    prompt: str,
-    model_name: str = DEFAULT_GEN_MODEL,
-    max_new_tokens: int = 256,
-    generator: Optional[Any] = None,
+def generate_answer_ollama(
+    user_message: str,
+    base_url: str = DEFAULT_OLLAMA_BASE_URL,
+    model: str = OLLAMA_MODEL,
+    timeout_s: float = 180.0,
 ) -> str:
-    """Run seq2seq generation (mT0 / mT5 family or compatible text2text model)."""
-    if generator is None:
-        from transformers import pipeline
+    """Call Ollama /api/chat (stdlib urllib)."""
+    import urllib.error
+    import urllib.request
 
-        generator = pipeline("text2text-generation", model=model_name, max_length=1024)
-    tok = getattr(generator, "tokenizer", None)
-    max_in = 1024
-    if tok is not None:
-        max_in = _safe_max_input_tokens(tok)
-    # Question is at the start of the prompt; default truncation keeps the prefix (question + early excerpts).
-    out = generator(
-        prompt,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        truncation=True,
-        max_length=max_in,
+    url = base_url.rstrip("/") + "/api/chat"
+    system = (
+        "Tu réponds toujours en français. Tu t'appuies uniquement sur le contexte fourni par l'utilisateur. "
+        "Si le contexte ne suffit pas, dis-le en une phrase au lieu d'inventer."
     )
-    return out[0]["generated_text"].strip()
+    body = json.dumps(
+        {
+            "model": model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_message},
+            ],
+            "options": {"temperature": 0.3, "num_predict": 512},
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Ollama HTTP {e.code}: {e.read().decode('utf-8', errors='replace')}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            f"Cannot reach Ollama at {url}. Is `ollama serve` running? ({e.reason})"
+        ) from e
+    msg = (payload.get("message") or {}).get("content") or ""
+    return _sanitize_generated_answer(msg.strip())
 
 
 def answer_question(
@@ -293,12 +321,11 @@ def answer_question(
     chunks: List[str],
     meta: List[Dict[str, Any]],
     embed_model: str = DEFAULT_EMBED_MODEL,
-    gen_model: str = DEFAULT_GEN_MODEL,
     top_k: int = 5,
     embedder: Optional[Any] = None,
-    generator: Optional[Any] = None,
+    ollama_base_url: Optional[str] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
-    """Retrieve then generate in one call."""
+    """Retrieve excerpts, then generate an answer with Ollama (llama3.2)."""
     retrieved = retrieve(
         question,
         embeddings,
@@ -308,6 +335,7 @@ def answer_question(
         top_k=top_k,
         embedder=embedder,
     )
-    prompt = build_rag_prompt(question, retrieved)
-    answer = generate_answer(prompt, model_name=gen_model, generator=generator)
+    user_msg = build_ollama_user_message(question, retrieved)
+    base = ollama_base_url or DEFAULT_OLLAMA_BASE_URL
+    answer = generate_answer_ollama(user_msg, base_url=base, model=OLLAMA_MODEL)
     return answer, retrieved
