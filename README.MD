@@ -1,29 +1,28 @@
-================================================================================
-Utilisation du RAG dans l’application Streamlit
-================================================================================
+Using RAG in the Streamlit Application
 
-Faut-il lancer Ollama avant Streamlit ?
------------------------------------------
-Oui, pour **poser une question et obtenir une réponse générée** :
 
-  1. Installe Ollama : https://ollama.com
-  2. **Laisse Ollama actif** (au démarrage, l’application Ollama lance en général le serveur en arrière-plan).
-     - Windows / macOS : ouvre l’application Ollama (icône dans la barre des tâches).
-     - Linux : si besoin, dans un terminal :  ollama serve
-  3. Télécharge le modèle une fois :
+Do you need to launch Ollama before Streamlit?
+----------------------------------------------
+Yes, to **ask a question and get a generated answer**:
+
+  1. Install Ollama: https://ollama.com
+  2. **Keep Ollama running** (when launched, the Ollama app typically starts the server in the background).
+     - Windows / macOS: open the Ollama application (look for its icon in the taskbar).
+     - Linux: if needed, run in a terminal:  ollama serve
+  3. Download the model once:
         ollama pull llama3.2
-  4. Lance Streamlit (depuis la racine du projet) :
+  4. Start Streamlit (from the project root):
         python -m streamlit run app_streamlit.py
-  5. Dans l’onglet / page RAG : saisis une question puis « Retrieve & generate answer ».
+  5. In the RAG tab/page: enter a question and click “Retrieve & generate answer”.
 
-Sans Ollama qui tourne, la génération échouera (erreur de connexion à l’API locale,
-souvent http://127.0.0.1:11434).
+If Ollama isn’t running, answer generation will fail (connection error to the local API,
+usually http://127.0.0.1:11434).
 
-Construction de l’index vectoriel (embeddings)
------------------------------------------------
-Tu peux construire l’index **sans** Ollama, par exemple :
+Building the vector index (embeddings)
+--------------------------------------
+You can build the index **without** Ollama, for example:
 
         python scripts/build_rag_index.py --max-documents 4000
 
-ou le bouton « Build embedding index » dans l’app. Seul l’appel au LLM pour rédiger
-la réponse nécessite Ollama.
+or by using the “Build embedding index” button in the app. Only the LLM call to generate
+an answer requires Ollama.
