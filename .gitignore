@@ -2,3 +2,7 @@ data/
 
 # Large RAG vector store (rebuild with scripts/build_rag_index.py)
 artifacts/rag/
+
+# TensorBoard / HF Trainer outputs (notebook section 7)
+runs/
+distilbert_topic_ft/
