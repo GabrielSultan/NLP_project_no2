@@ -197,6 +197,13 @@ def build_and_save_index(
     return embeddings, chunks, meta
 
 
+def unique_insurers_in_meta(meta: List[Dict[str, Any]]) -> List[str]:
+    """Sorted unique non-empty insurer names as stored in chunk metadata (matches CSV `assureur`)."""
+    seen = {str(m.get("assureur", "") or "").strip() for m in meta}
+    seen.discard("")
+    return sorted(seen)
+
+
 def retrieve(
     query: str,
     embeddings: np.ndarray,
@@ -205,15 +212,30 @@ def retrieve(
     embed_model: str = DEFAULT_EMBED_MODEL,
     top_k: int = 5,
     embedder: Optional[Any] = None,
+    insurer_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Return top_k chunks with scores (cosine similarity, embeddings are pre-normalized)."""
+    """
+    Return top_k chunks with scores (cosine similarity, embeddings are pre-normalized).
+    If insurer_filter is set, only chunks whose metadata `assureur` equals that string (after strip) are considered.
+    """
     if embedder is None:
         from sentence_transformers import SentenceTransformer
 
         embedder = SentenceTransformer(embed_model)
     q = embedder.encode([query], convert_to_numpy=True, normalize_embeddings=True)[0].astype(np.float32)
     scores = embeddings @ q
-    k = min(top_k, len(scores))
+    n = len(scores)
+    if insurer_filter:
+        target = str(insurer_filter).strip()
+        mask = np.array([str(m.get("assureur", "") or "").strip() == target for m in meta], dtype=bool)
+        if not np.any(mask):
+            return []
+        scores = scores.copy()
+        scores[~mask] = -np.inf
+        n_valid = int(np.sum(mask))
+    else:
+        n_valid = n
+    k = min(top_k, n_valid)
     top_idx = np.argpartition(-scores, k - 1)[:k]
     top_idx = top_idx[np.argsort(-scores[top_idx])]
     out: List[Dict[str, Any]] = []
@@ -248,7 +270,12 @@ def _sanitize_generated_answer(text: str) -> str:
     return t.strip()
 
 
-def build_ollama_user_message(question: str, retrieved: List[Dict[str, Any]], max_context_chars: int = 12000) -> str:
+def build_ollama_user_message(
+    question: str,
+    retrieved: List[Dict[str, Any]],
+    max_context_chars: int = 12000,
+    insurer_scope: Optional[str] = None,
+) -> str:
     """User message for Ollama chat: French context + question."""
     parts = []
     for item in retrieved:
@@ -258,8 +285,14 @@ def build_ollama_user_message(question: str, retrieved: List[Dict[str, Any]], ma
         parts.append(f"- {item['text']}\n  (assureur: {ins}, note: {note})")
     ctx = "\n".join(parts)
     ctx = _truncate_context(ctx, max_context_chars)
+    scope = ""
+    if insurer_scope:
+        scope = (
+            f"Les extraits ci-dessous concernent uniquement l'assureur « {insurer_scope.strip()} ».\n\n"
+        )
     return (
         "Tu es analyste sur des avis clients d'assurance (textes en français).\n"
+        f"{scope}"
         "À partir du contexte ci-dessous uniquement, réponds à la question en français.\n"
         "Écris un paragraphe de 4 à 8 phrases : synthétise les thèmes (satisfaction, problèmes, délais, "
         "téléphone, moto, etc.) sans inventer de faits absents du contexte.\n"
@@ -324,6 +357,7 @@ def answer_question(
     top_k: int = 5,
     embedder: Optional[Any] = None,
     ollama_base_url: Optional[str] = None,
+    insurer_filter: Optional[str] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """Retrieve excerpts, then generate an answer with Ollama (llama3.2)."""
     retrieved = retrieve(
@@ -334,8 +368,18 @@ def answer_question(
         embed_model=embed_model,
         top_k=top_k,
         embedder=embedder,
+        insurer_filter=insurer_filter,
     )
-    user_msg = build_ollama_user_message(question, retrieved)
+    if not retrieved:
+        return (
+            "Aucun extrait trouvé pour cet assureur dans l'index (ou nom d'assureur sans correspondance exacte).",
+            [],
+        )
+    user_msg = build_ollama_user_message(
+        question,
+        retrieved,
+        insurer_scope=insurer_filter,
+    )
     base = ollama_base_url or DEFAULT_OLLAMA_BASE_URL
     answer = generate_answer_ollama(user_msg, base_url=base, model=OLLAMA_MODEL)
     return answer, retrieved
