@@ -1,10 +1,10 @@
 """
-Streamlit : pipeline complet (thème + résumé + sentiment + avis similaires BM25 → MiniLM → Ollama)
-et RAG / QA (Ollama).
+Streamlit app: full pipeline (theme + summary + sentiment + similar reviews BM25 → MiniLM → Ollama)
+and RAG / QA (Ollama).
 
-Prérequis Ollama : `ollama pull llama3.2` (RAG et rerank des avis similaires).
+Ollama: `ollama pull llama3.2` (RAG and similar-review reranking).
 
-Lancement (depuis la racine du dépôt) :
+Run from repo root:
     streamlit run streamlit_app/app_streamlit.py
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = str(_PROJECT_ROOT / "data")
 ARTIFACTS_DIR = str(_PROJECT_ROOT / "artifacts")
 
-_ALL_INSURERS = "— Tous les assureurs —"
+_ALL_INSURERS = "— All insurers —"
 
 
 @st.cache_data
@@ -62,7 +62,7 @@ def load_thematic_bundle_cached(artifacts_dir: str, _model_mtime: float):
 
 @st.cache_resource
 def load_similarity_bundle(_csv_mtime: float, csv_path: str, max_rows: int):
-    """Sous-corpus + bi-encodeur all-MiniLM-L6-v2 (partagé BM25 / requêtes)."""
+    """Sub-corpus + all-MiniLM-L6-v2 bi-encoder (shared for BM25 stage and query encoding)."""
     from sentence_transformers import SentenceTransformer
 
     emb = SentenceTransformer(BI_ENCODER_MODEL)
@@ -87,11 +87,11 @@ def load_sentiment_hf():
 
 
 def render_rag_tab() -> None:
-    st.subheader("RAG / QA sur les avis")
-    st.caption("Recherche sémantique sur les avis, puis **Ollama** (`llama3.2`) génère la réponse en français.")
+    st.subheader("RAG / QA over reviews")
+    st.caption("Semantic search over reviews, then **Ollama** (`llama3.2`) generates the answer in French.")
     st.info(
-        "**Pour générer une réponse :** serveur **Ollama** actif ; une fois : `ollama pull llama3.2`. "
-        "L’index vectoriel se construit sans Ollama."
+        "**To generate answers:** run **Ollama**; once: `ollama pull llama3.2`. "
+        "The vector index can be built without Ollama."
     )
 
     csv_path = os.path.join(DATA_DIR, "insurance_reviews_cleaned.csv")
@@ -99,53 +99,53 @@ def render_rag_tab() -> None:
     bundle = load_rag_vector_bundle(ARTIFACTS_DIR, mtime)
 
     if bundle is None:
-        st.info("Pas d’index vectoriel. Lance `python scripts/build_rag_index.py` ou construis ci-dessous.")
+        st.info("No vector index yet. Run `python scripts/build_rag_index.py` or build below.")
         max_docs = st.number_input(
-            "Nombre max de lignes à indexer (depuis le début du CSV)",
+            "Max rows to index (from the start of the CSV)",
             min_value=100,
             max_value=50000,
             value=1200,
             step=100,
             key="rag_max_docs",
         )
-        if st.button("Construire l’index d’embeddings", key="rag_build"):
+        if st.button("Build embedding index", key="rag_build"):
             if not os.path.isfile(csv_path):
-                st.error(f"CSV introuvable : {csv_path}")
+                st.error(f"CSV not found: {csv_path}")
             else:
-                with st.spinner("Indexation…"):
+                with st.spinner("Indexing…"):
                     rag.build_and_save_index(
                         csv_path=csv_path,
                         artifacts_dir=ARTIFACTS_DIR,
                         max_documents=int(max_docs),
                         show_progress=False,
                     )
-                st.success("Index enregistré. Rechargement…")
+                st.success("Index saved. Reloading…")
                 st.rerun()
         return
 
     embeddings, chunks, meta, cfg = bundle
-    st.success(f"Index RAG prêt — **{cfg.get('num_vectors', embeddings.shape[0])}** segments.")
+    st.success(f"RAG index ready — **{cfg.get('num_vectors', embeddings.shape[0])}** segments.")
 
     insurer_list = insurer_choices_for_index(mtime, ARTIFACTS_DIR)
     if not insurer_list:
-        st.warning("Aucun nom d’assureur dans les métadonnées de l’index.")
+        st.warning("No insurer names in index metadata.")
     insurer_choice = st.selectbox(
-        "Assureur (filtrer la recherche)",
+        "Insurer (filter search)",
         options=[_ALL_INSURERS] + insurer_list,
         index=0,
         key="rag_insurer",
     )
     insurer_filter = None if insurer_choice == _ALL_INSURERS else insurer_choice
 
-    question = st.text_input("Pose une question sur les avis :", key="rag_question")
-    top_k = st.slider("Segments à récupérer", min_value=3, max_value=12, value=5, key="rag_topk")
+    question = st.text_input("Ask a question about the reviews:", key="rag_question")
+    top_k = st.slider("Segments to retrieve", min_value=3, max_value=12, value=5, key="rag_topk")
 
-    if st.button("Récupérer et générer la réponse", key="rag_answer_btn"):
+    if st.button("Retrieve and generate answer", key="rag_answer_btn"):
         if not question.strip():
-            st.warning("Entre une question.")
+            st.warning("Enter a question.")
         else:
             embedder = load_rag_embedder()
-            with st.spinner("Récupération + appel Ollama…"):
+            with st.spinner("Retrieval + Ollama…"):
                 try:
                     answer, retrieved = rag.answer_question(
                         question.strip(),
@@ -159,32 +159,32 @@ def render_rag_tab() -> None:
                 except RuntimeError as e:
                     st.error(str(e))
                     st.stop()
-            st.markdown("### Réponse générée")
+            st.markdown("### Generated answer")
             st.write(answer)
-            with st.expander("Extraits récupérés (scores)"):
+            with st.expander("Retrieved excerpts (scores)"):
                 for item in retrieved:
                     m = item["meta"]
                     st.markdown(
-                        f"**score** `{item['score']:.3f}` — **note** {m.get('note', '')} — "
-                        f"**assureur** {m.get('assureur', '')}"
+                        f"**score** `{item['score']:.3f}` — **rating** {m.get('note', '')} — "
+                        f"**insurer** {m.get('assureur', '')}"
                     )
                     st.text(item["text"][:1200] + ("..." if len(item["text"]) > 1200 else ""))
 
 
 def render_full_pipeline_tab() -> None:
-    st.subheader("Pipeline : thème, résumé, sentiment, avis similaires")
+    st.subheader("Pipeline: theme, summary, sentiment, similar reviews")
     st.caption(
-        "**Similarité** : BM25 → top 50, bi-encodeur **all-MiniLM-L6-v2** → top 25, "
-        "top 10 → **Ollama llama3.2** (scores 0–10) → **top 5**. Sous-ensemble du CSV."
+        "**Similarity:** BM25 → top 50, **all-MiniLM-L6-v2** bi-encoder → top 25, "
+        "top 10 → **Ollama llama3.2** (0–10 scores) → **top 5**. CSV subset."
     )
     csv_path = os.path.join(DATA_DIR, "insurance_reviews_cleaned.csv")
     if not os.path.isfile(csv_path):
-        st.error(f"Fichier introuvable : `{csv_path}`")
+        st.error(f"File not found: `{csv_path}`")
         return
 
     m_csv = os.path.getmtime(csv_path)
     max_rows = st.slider(
-        "Nombre de lignes du CSV (depuis le début)",
+        "CSV rows (from the start)",
         min_value=400,
         max_value=12000,
         value=4000,
@@ -192,21 +192,21 @@ def render_full_pipeline_tab() -> None:
         key="pipe_max_rows",
     )
     use_ollama_sim = st.checkbox(
-        "Reranking final avec Ollama (10 appels / analyse)",
+        "Final reranking with Ollama (10 calls per analysis)",
         value=True,
         key="pipe_ollama_sim",
     )
     if use_ollama_sim:
-        st.caption("Sans Ollama actif : les 5 avis sont les 5 premiers du top 10 bi-encodeur.")
+        st.caption("If Ollama is off: top 5 = first 5 of the bi-encoder top 10.")
 
     try:
-        with st.spinner("Chargement du sous-corpus + embeddings (première fois : long)…"):
+        with st.spinner("Loading sub-corpus + embeddings (first run can be slow)…"):
             sim_index, bi_encoder = load_similarity_bundle(m_csv, csv_path, max_rows)
     except Exception as e:
-        st.error(f"Impossible de construire l’index de similarité : {e}")
+        st.error(f"Could not build similarity index: {e}")
         return
 
-    st.success(f"**{len(sim_index.texts)}** avis indexés (BM25 + MiniLM).")
+    st.success(f"**{len(sim_index.texts)}** reviews indexed (BM25 + MiniLM).")
 
     summarizer = load_summarizer_hf()
     sentiment_pipe = load_sentiment_hf()
@@ -217,20 +217,20 @@ def render_full_pipeline_tab() -> None:
         try:
             thematic_bundle = load_thematic_bundle_cached(ARTIFACTS_DIR, m_model)
         except Exception as e:
-            st.warning(f"Modèle thématique non chargé : {e}")
+            st.warning(f"Thematic model not loaded: {e}")
     else:
         st.info(
-            "Thématique DistilBERT indisponible (`artifacts/distilbert_thematic/`). "
-            "Le reste du pipeline fonctionne."
+            "DistilBERT theme model missing (`artifacts/distilbert_thematic/`). "
+            "The rest of the pipeline still runs."
         )
 
-    text = st.text_area("Avis à analyser", height=180, key="pipeline_input")
-    if st.button("Lancer le pipeline", key="pipeline_run"):
+    text = st.text_area("Review to analyze", height=180, key="pipeline_input")
+    if st.button("Run pipeline", key="pipeline_run"):
         raw = (text or "").strip()
         if not raw:
-            st.warning("Saisis un texte d’avis.")
+            st.warning("Enter review text.")
             return
-        with st.spinner("Thématique, résumé, sentiment, recherche d’avis similaires…"):
+        with st.spinner("Theme, summary, sentiment, similar reviews…"):
             result = review_pipe.run_review_analysis(
                 raw,
                 ARTIFACTS_DIR,
@@ -242,43 +242,43 @@ def render_full_pipeline_tab() -> None:
                 use_ollama_similarity=use_ollama_sim,
             )
 
-        st.markdown("### Thématique (DistilBERT sur texte prétraité)")
+        st.markdown("### Theme (DistilBERT on preprocessed text)")
         if result.thematic_error:
             st.warning(result.thematic_error)
         elif result.thematic_best:
             lab, p = result.thematic_best
-            st.markdown(f"**{lab}** — confiance **{p:.1%}**")
-            with st.expander("Probabilités par classe"):
+            st.markdown(f"**{lab}** — confidence **{p:.1%}**")
+            with st.expander("Class probabilities"):
                 for a, b in result.thematic_probs:
                     st.write(f"- `{a}` : {b:.2%}")
         else:
-            st.caption("Non calculé.")
+            st.caption("Not computed.")
 
-        st.markdown("### Résumé (FR)")
+        st.markdown("### Summary (FR)")
         st.write(result.summary_fr or "—")
         if result.summary_skipped_reason:
             st.caption(result.summary_skipped_reason)
 
         st.markdown("### Sentiment")
         st.write(
-            f"**{result.sentiment_label}** (score modèle : {result.sentiment_score:.3f})"
+            f"**{result.sentiment_label}** (model score: {result.sentiment_score:.3f})"
         )
 
-        st.markdown("### 5 avis les plus similaires (pipeline BM25 → MiniLM → Ollama)")
+        st.markdown("### Top 5 similar reviews (BM25 → bi-encoder → Ollama)")
         sim = result.similar
         if sim is None or not sim.final:
-            st.info("Aucun voisin trouvé.")
+            st.info("No neighbors found.")
             return
         if sim.ollama_error:
-            st.warning(f"Ollama (rerank) : {sim.ollama_error} — fallback ordre bi-encodeur.")
+            st.warning(f"Ollama (rerank): {sim.ollama_error} — fallback: bi-encoder order.")
         elif use_ollama_sim and sim.ollama_used:
-            st.caption("Classement final : scores Ollama 0–10 sur le top 10 bi-encodeur.")
+            st.caption("Final ranking: Ollama 0–10 scores on bi-encoder top 10.")
 
         for rank, h in enumerate(sim.final, start=1):
             meta = h.meta
             st.markdown(
-                f"**#{rank}** — note {meta.get('note', '')} · assureur {meta.get('assureur', '')} "
-                f"· idx corpus {h.corpus_index}"
+                f"**#{rank}** — rating {meta.get('note', '')} · insurer {meta.get('assureur', '')} "
+                f"· corpus idx {h.corpus_index}"
             )
             extra = f"BM25 `{h.bm25_score:.3f}` · cos MiniLM `{h.biencoder_score:.3f}`"
             if h.ollama_score is not None:
@@ -286,19 +286,19 @@ def render_full_pipeline_tab() -> None:
             st.caption(extra)
             st.text((h.text or "")[:900] + ("…" if len(h.text or "") > 900 else ""))
 
-        with st.expander("Détail des étapes (debug)"):
-            st.write(f"**Top {len(sim.stage_bm25)} BM25** (aperçu indices)")
+        with st.expander("Stage details (debug)"):
+            st.write(f"**Top {len(sim.stage_bm25)} BM25** (index preview)")
             st.json(
                 [
                     {
                         "corpus_index": x.corpus_index,
                         "bm25": round(x.bm25_score, 4),
-                        "assureur": str(x.meta.get("assureur", ""))[:40],
+                        "insurer": str(x.meta.get("assureur", ""))[:40],
                     }
                     for x in sim.stage_bm25[:12]
                 ]
             )
-            st.write(f"**Top {len(sim.stage_biencoder)} bi-encodeur**")
+            st.write(f"**Top {len(sim.stage_biencoder)} bi-encoder**")
             st.json(
                 [
                     {
@@ -312,7 +312,7 @@ def render_full_pipeline_tab() -> None:
 
 def main():
     st.title("Insurance Reviews — NLP")
-    tab_pipe, tab_rag = st.tabs(["Pipeline complet", "RAG / QA"])
+    tab_pipe, tab_rag = st.tabs(["Full pipeline", "RAG / QA"])
     with tab_pipe:
         render_full_pipeline_tab()
     with tab_rag:

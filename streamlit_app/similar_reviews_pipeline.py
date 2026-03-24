@@ -1,8 +1,8 @@
 """
-Recherche d'avis similaires : BM25 (top 50) → bi-encodeur all-MiniLM-L6-v2 (top 25)
-→ top 10 → rerank top 5 via scores Ollama (llama3.2), sur un sous-ensemble du CSV.
+Similar-review search: BM25 (top 50) → all-MiniLM-L6-v2 bi-encoder (top 25)
+→ top 10 → rerank to top 5 with Ollama scores (llama3.2), on a CSV subset.
 
-Inspiré du pipeline Projet 1 (BM25 + reranking + Ollama).
+Inspired by project 1 pipeline (BM25 + reranking + Ollama).
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from rank_bm25 import BM25Okapi
 
-# Bi-encoder demandé (anglais ; OK pour lexique partagé assurance)
+# English bi-encoder; fine for shared insurance vocabulary with French text
 BI_ENCODER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 BM25_TOP_K = 50
@@ -27,7 +27,7 @@ BIENCODER_TOP_K = 25
 OLLAMA_POOL_K = 10
 FINAL_TOP_K = 5
 
-# Contexte par appel : 2 blocs + instructions ; réduire si Ollama renvoie 500 (souvent RAM/VRAM).
+# Per call: two text blocks + instructions; lower if Ollama returns 500 (often RAM/VRAM).
 MAX_CHARS_OLLAMA = int(os.environ.get("OLLAMA_RERANK_MAX_CHARS", "800"))
 
 OLLAMA_MODEL = os.environ.get("OLLAMA_RERANK_MODEL", os.environ.get("OLLAMA_MODEL", "llama3.2"))
@@ -70,7 +70,7 @@ class SimilarReviewsResult:
 
 
 class SimilarReviewsIndex:
-    """Corpus limité : textes, BM25, embeddings bi-encodeur normalisés."""
+    """Limited corpus: texts, BM25, L2-normalized bi-encoder embeddings."""
 
     def __init__(
         self,
@@ -117,9 +117,9 @@ class SimilarReviewsIndex:
                 }
             )
         if not texts:
-            raise ValueError("Aucun avis valide dans le sous-ensemble CSV.")
+            raise ValueError("No valid reviews in the CSV subset.")
         tokenized = [tokenize_fr(t) for t in texts]
-        tokenized = [t if t else ["vide"] for t in tokenized]
+        tokenized = [t if t else ["empty"] for t in tokenized]
         bm25 = BM25Okapi(tokenized)
         if embedder is None:
             from sentence_transformers import SentenceTransformer
@@ -150,17 +150,17 @@ def _ollama_similarity_score(
     timeout_s: float = 90.0,
 ) -> float:
     """
-    Score 0–10 via /api/chat (même API que le RAG du projet, souvent plus stable que /api/generate).
+    Score 0–10 via /api/chat (same as project RAG; often more stable than /api/generate).
     """
     q = (query or "")[:MAX_CHARS_OLLAMA]
     c = (candidate or "")[:MAX_CHARS_OLLAMA]
     system = (
-        "Tu réponds uniquement par un nombre décimal entre 0 et 10, sans texte avant ni après. "
-        "0 = pas similaires, 10 = très similaires sur le fond (thèmes, problèmes, ton)."
+        "Reply with only one decimal between 0 and 10, no other text before or after. "
+        "0 = not similar, 10 = very similar in substance (themes, issues, tone)."
     )
     user_content = (
-        "Compare ces deux avis clients assurance (français). Score de similarité 0-10.\n\n"
-        f"Avis de référence :\n{q}\n\nAvis à comparer :\n{c}"
+        "Compare these two French insurance customer reviews. Similarity score 0–10.\n\n"
+        f"Reference review:\n{q}\n\nReview to compare:\n{c}"
     )
     url = base_url.rstrip("/") + "/api/chat"
     body = json.dumps(
@@ -173,7 +173,7 @@ def _ollama_similarity_score(
             ],
             "options": {
                 "temperature": 0.1,
-                # Très court : moins de charge mémoire / moins de plantages serveur
+                # Short output: less memory / fewer server failures
                 "num_predict": 16,
             },
         },
@@ -206,7 +206,7 @@ def _ollama_similarity_score(
             raise err from e
 
     if payload is None:
-        raise RuntimeError("Ollama: aucune réponse")
+        raise RuntimeError("Ollama: no response")
 
     response = ((payload.get("message") or {}).get("content") or "").strip()
     m = re.search(r"\b(10(?:\.0+)?|[0-9](?:\.\d+)?)\b", response)
@@ -225,8 +225,8 @@ def find_similar_reviews(
     exclude_corpus_indices: Optional[set] = None,
 ) -> SimilarReviewsResult:
     """
-    Pipeline : BM25 top 50 → bi-encodeur top 25 → top 10 → Ollama scores → top 5.
-    Si Ollama échoue ou use_ollama_rerank=False : top 5 = 5 premiers du top 10 bi-encodeur.
+    Pipeline: BM25 top 50 → bi-encoder top 25 → top 10 → Ollama scores → top 5.
+    If Ollama fails or use_ollama_rerank=False: top 5 = first 5 of bi-encoder top 10.
     """
     out = SimilarReviewsResult(query=(query or "").strip())
     q = out.query
@@ -240,7 +240,7 @@ def find_similar_reviews(
 
     q_tokens = tokenize_fr(q)
     if not q_tokens:
-        q_tokens = ["vide"]
+        q_tokens = ["empty"]
 
     bm25_scores = np.asarray(index.bm25.get_scores(q_tokens), dtype=np.float64)
     k_bm = min(BM25_TOP_K, n)

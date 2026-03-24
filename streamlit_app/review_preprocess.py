@@ -16,7 +16,7 @@ from typing import FrozenSet, Optional
 
 
 def _default_artifacts_dir() -> str:
-    """Racine du dépôt / artifacts (dossier parent de streamlit_app/)."""
+    """Project root `artifacts/` (parent of `streamlit_app/`)."""
     return str((Path(__file__).resolve().parent.parent / "artifacts").resolve())
 
 
@@ -47,7 +47,7 @@ def _french_stopwords(artifacts_dir_abs: str) -> FrozenSet[str]:
 def preprocess_like_avis_traite(text: object, artifacts_dir: Optional[str] = None) -> str:
     """
     Reproduce the `preprocess_text` function from the notebook on a raw string (like `avis` / `avis_source`).
-    Si artifacts_dir est omis, utilise `<racine_projet>/artifacts`.
+    If `artifacts_dir` is omitted, uses `<project_root>/artifacts`.
     """
     import nltk
     import simplemma

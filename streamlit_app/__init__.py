@@ -1,1 +1,1 @@
-"""Application Streamlit et modules associés (RAG, prétraitement, modèles)."""
+"""Streamlit app and related modules (RAG, preprocessing, models)."""

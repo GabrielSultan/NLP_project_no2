@@ -1,6 +1,6 @@
 """
-Pipeline d'analyse d'un avis : thématique (DistilBERT), résumé FR, sentiment multilingue,
-avis similaires (BM25 → bi-encodeur → Ollama).
+Single-review analysis pipeline: theme (DistilBERT), French summary, multilingual sentiment,
+similar reviews (BM25 → bi-encoder → Ollama).
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from similar_reviews_pipeline import (
 SUMMARY_MODEL = "moussaKam/barthez-orangesum-abstract"
 SENTIMENT_MODEL = "nlptown/bert-base-multilingual-uncased-sentiment"
 
-# Résumé : éviter les appels absurdes sur textes trop courts
+# Summary: skip absurdly short inputs
 MIN_WORDS_SUMMARY = 28
 MAX_SUMMARY_INPUT_CHARS = 2500
 
@@ -44,17 +44,17 @@ def _map_stars_to_polarity(label: str, score: float) -> Tuple[str, float]:
     m = re.search(r"([1-5])", str(label) or "")
     stars = int(m.group(1)) if m else 3
     if stars >= 4:
-        return "Positif", float(score)
+        return "Positive", float(score)
     if stars <= 2:
-        return "Négatif", float(score)
-    return "Neutre", float(score)
+        return "Negative", float(score)
+    return "Neutral", float(score)
 
 
 def summarize_french(text: str, summarizer: Any) -> Tuple[str, Optional[str]]:
-    """Retourne (résumé, raison si skip)."""
+    """Returns (summary, skip reason if any)."""
     words = str(text).split()
     if len(words) < MIN_WORDS_SUMMARY:
-        return str(text).strip(), "Texte trop court pour un résumé automatique (réaffichage brut)."
+        return str(text).strip(), "Text too short for automatic summary (raw text shown)."
     t = str(text).strip()[:MAX_SUMMARY_INPUT_CHARS]
     try:
         out = summarizer(
@@ -69,13 +69,13 @@ def summarize_french(text: str, summarizer: Any) -> Tuple[str, Optional[str]]:
             return (st if st else t, None)
     except Exception:
         pass
-    return t, "Échec du modèle de résumé ; texte tronqué affiché."
+    return t, "Summarization model failed; truncated raw text shown."
 
 
 def sentiment_multilingual(text: str, pipe: Any) -> Tuple[str, float]:
     t = (text or "").strip()
     if not t:
-        return "Inconnu", 0.0
+        return "Unknown", 0.0
     chunk = t[:2000]
     r = pipe(chunk)[0]
     return _map_stars_to_polarity(r.get("label", ""), r.get("score", 0.0))
@@ -109,7 +109,7 @@ def run_review_analysis(
         except Exception as e:
             out.thematic_error = str(e)
     elif thematic_bundle and not processed:
-        out.thematic_error = "Texte vide après prétraitement (thématique impossible)."
+        out.thematic_error = "Empty text after preprocessing (theme prediction skipped)."
 
     out.summary_fr, out.summary_skipped_reason = summarize_french(raw, summarizer)
     out.sentiment_label, out.sentiment_score = sentiment_multilingual(raw, sentiment_pipe)

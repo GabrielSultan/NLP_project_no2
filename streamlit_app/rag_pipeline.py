@@ -262,7 +262,7 @@ def _sanitize_generated_answer(text: str) -> str:
     t = re.sub(r"^(?:Excerpt\s*\d+\s*[.:]?\s*)", "", t, flags=re.IGNORECASE)
     t = re.sub(r"^\d{1,2}\s*[.)]\s*", "", t)
     t = re.sub(
-        r"^[—\-–]\s*Avis\s*\([^)]+\)\s*[.:]?\s*",
+        r"^[—\-–]\s*(?:Avis|Review)\s*\([^)]+\)\s*[.:]?\s*",
         "",
         t,
         flags=re.IGNORECASE,
@@ -276,29 +276,29 @@ def build_ollama_user_message(
     max_context_chars: int = 12000,
     insurer_scope: Optional[str] = None,
 ) -> str:
-    """User message for Ollama chat: French context + question."""
+    """User message for Ollama chat: French review excerpts + question (answer in French)."""
     parts = []
     for item in retrieved:
         m = item["meta"]
-        ins = str(m.get("assureur", "") or "").strip() or "inconnu"
+        ins = str(m.get("assureur", "") or "").strip() or "unknown"
         note = m.get("note", "")
-        parts.append(f"- {item['text']}\n  (assureur: {ins}, note: {note})")
+        parts.append(f"- {item['text']}\n  (insurer: {ins}, rating: {note})")
     ctx = "\n".join(parts)
     ctx = _truncate_context(ctx, max_context_chars)
     scope = ""
     if insurer_scope:
         scope = (
-            f"Les extraits ci-dessous concernent uniquement l'assureur « {insurer_scope.strip()} ».\n\n"
+            f"The excerpts below are only for insurer « {insurer_scope.strip()} ».\n\n"
         )
     return (
-        "Tu es analyste sur des avis clients d'assurance (textes en français).\n"
+        "You analyze French insurance customer reviews.\n"
         f"{scope}"
-        "À partir du contexte ci-dessous uniquement, réponds à la question en français.\n"
-        "Écris un paragraphe de 4 à 8 phrases : synthétise les thèmes (satisfaction, problèmes, délais, "
-        "téléphone, moto, etc.) sans inventer de faits absents du contexte.\n"
-        "Ne commence pas par une liste numérotée.\n\n"
-        f"Contexte :\n{ctx}\n\n"
-        f"Question : {question}"
+        "Answer the question in French using only the context below.\n"
+        "Write one paragraph of 4–8 sentences: summarize themes (satisfaction, issues, delays, "
+        "phone, motorcycle, etc.) without inventing facts not in the context.\n"
+        "Do not start with a numbered list.\n\n"
+        f"Context:\n{ctx}\n\n"
+        f"Question: {question}"
     )
 
 
@@ -314,8 +314,8 @@ def generate_answer_ollama(
 
     url = base_url.rstrip("/") + "/api/chat"
     system = (
-        "Tu réponds toujours en français. Tu t'appuies uniquement sur le contexte fourni par l'utilisateur. "
-        "Si le contexte ne suffit pas, dis-le en une phrase au lieu d'inventer."
+        "Always answer in French. Rely only on the user-provided context. "
+        "If the context is insufficient, say so in one sentence instead of inventing."
     )
     body = json.dumps(
         {
@@ -372,7 +372,7 @@ def answer_question(
     )
     if not retrieved:
         return (
-            "Aucun extrait trouvé pour cet assureur dans l'index (ou nom d'assureur sans correspondance exacte).",
+            "No excerpts found for this insurer in the index (or insurer name does not match exactly).",
             [],
         )
     user_msg = build_ollama_user_message(
