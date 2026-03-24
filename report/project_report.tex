@@ -30,6 +30,15 @@ NLP Analysis, Thematic Classification, and Interactive Application}
 \begin{document}
 \maketitle
 
+\noindent\begin{minipage}{\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{mainImage.png}
+  \captionsetup{type=figure}
+  \captionof{figure}{Main illustration: three-dimensional projection of Word2Vec embeddings for insurance review tokens, coloured by average review rating (\texttt{viridis}). The spatial separation between higher-rated (bluer) and lower-rated (yellower) regions motivates the qualitative analysis in Section~\ref{sec:qual-emb}.}
+  \label{fig:main-hero}
+\end{minipage}
+\vspace{0.6em}
+
 \begin{abstract}
 This report describes an end-to-end natural language processing project on French insurance customer reviews: data preparation and exploratory analysis, distributional and neural representations (Word2Vec, FastText, LDA), supervised thematic classification (TF-IDF with logistic regression and fine-tuned DistilBERT), and a Streamlit application combining summarization, multilingual sentiment, retrieval-augmented question answering, and a multi-stage similar-review search pipeline. All model cards and technical choices are grounded in the project notebook and application code, with hyperlinks to official model documentation where applicable.
 \end{abstract}
@@ -70,7 +79,7 @@ Unigrams, bigrams, and trigrams were compared before and after cleaning using \t
 \section{Word2Vec and FastText embeddings}
 \textbf{Word2Vec} was trained with Gensim on lemmatized review tokens: \texttt{vector\_size=200}, \texttt{window=5}, \texttt{min\_count=7}, \texttt{workers=1}, \texttt{seed=42}. The dimension and context window follow common defaults for medium-sized corpora; \texttt{min\_count} suppresses rare tokens that inflate noise. Technical reference~\cite{ref:gensim-w2v}. Two-dimensional PCA projections color words by average rating help interpret semantic neighborhoods (Figure~\ref{fig:w2vft}).
 
-\textbf{FastText} French crawl vectors (\texttt{cc.fr.300}, 300 dimensions) were loaded without additional training to compare static subword-aware embeddings with the domain-trained Word2Vec model. Documentation and download policy~\cite{ref:fasttext-vec}. FastText handles morphological variants and OOV pieces via character n-grams, which often yields different nearest neighbors than a corpus-specific Word2Vec model.
+\textbf{FastText} French crawl vectors (\texttt{cc.fr.300}, 300 dimensions) were loaded without additional training to compare static subword-aware embeddings with the domain-trained Word2Vec model. Documentation and download policy~\cite{ref:fasttext-vec}. FastText handles morphological variants and OOV pieces via character n-grams, which often yields different nearest neighbors than a corpus-specific Word2Vec model. When the same words are coloured by average review score, the spatial separation between high- and low-rating regions is markedly weaker for these pretrained crawl vectors than for in-domain Word2Vec (see Section~\ref{sec:qual-emb}).
 
 \begin{figure}[htbp]
   \centering
@@ -97,6 +106,7 @@ Unigrams, bigrams, and trigrams were compared before and after cleaning using \t
     \caption{3D projection for FastText vectors.}
   \end{subfigure}
   \caption{Three-dimensional embedding visualizations for exploration.}
+  \label{fig:emb3d}
 \end{figure}
 
 \section{LDA topic exploration}
@@ -144,7 +154,10 @@ Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab ru
 \textbf{RAG:} Chunks default to 90 words with 20-word overlap. Embeddings use \texttt{paraphrase-multilingual-MiniLM-L12-v2}~\cite{ref:paraphrase-l12} (multilingual semantic search, 384-d). Retrieval is cosine similarity on L2-normalized vectors; generation uses Ollama \texttt{llama3.2}~\cite{ref:ollama-llama} with temperature 0.3 and bounded context in the user prompt. Index build parameters are fingerprinted so stale indices are detectable when CSV or hyperparameters change.
 
 \section{Qualitative embedding figures (thematic probes)}
-Additional projector screenshots (e.g.\ neighborhoods around \textit{refus} and \textit{amabilité}) illustrate how local geometry relates to customer-service semantics in the trained Word2Vec space.
+\label{sec:qual-emb}
+Thematic probes in the trained Word2Vec space show that lexicon associated with opposite customer experiences tends to occupy distant regions of the vector space. For example, \textit{refus} (denial, rejection) anchors a neighborhood of terms linked to dissatisfaction and conflict, whereas \textit{amabilité} (kindness, courtesy) sits among vocabulary typical of positive service descriptions. In the TensorBoard-style views, these seeds and their neighbors therefore appear as two poles: negatively connoted words cluster away from positively connoted ones, which is consistent with distributional semantics capturing sentiment and interaction quality from co-occurrence in reviews.
+
+This separation aligns with the global structure visible in the reduced views from earlier sections, but \textbf{much more clearly for domain-trained Word2Vec than for pretrained FastText}. In both two-dimensional PCA plots and three-dimensional projector renderings (Figures~\ref{fig:w2vft} and~\ref{fig:emb3d}), points are coloured by the average star rating of reviews in which each word appears (the \texttt{viridis} scale). For \textbf{Word2Vec}, one observes a clear stratification: high-rated contexts tend toward one end of the palette (bluer tones), while low-rated contexts shift toward the other (yellower tones), so the delineation by score is \textbf{visually strong and interpretable}. For \textbf{FastText} (Common Crawl French, not fine-tuned on reviews), the same colouring yields a \textbf{far muddier} picture: blue and yellow points intermingle, and the boundary between score-induced regions is \textbf{barely visible} compared with Word2Vec. That gap is expected---crawl embeddings optimise general French usage, not insurer-specific sentiment---whereas Word2Vec was trained directly on this corpus, so co-occurrence with satisfied versus dissatisfied language is baked into the geometry. The cloud is never perfectly linear even for Word2Vec---polysemy and mixed opinions blur boundaries---but the rating-graded manifold is unmistakable there, and only weakly echoed in the static FastText views, which is why thematic probes such as \textit{refus} versus \textit{amabilité} read most clearly against the Word2Vec background.
 
 \begin{figure}[htbp]
   \centering
