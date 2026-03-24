@@ -16,6 +16,8 @@ scikit-learn>=1.2.0
 
 # Hugging Face
 transformers>=4.30.0
+# torch: default pip wheel is often CPU-only; for NVIDIA GPU use the CUDA command from
+# https://pytorch.org/get-started/locally/ then pip install the rest of this file.
 torch>=2.0.0
 tensorboard>=2.14.0
 
@@ -30,6 +32,7 @@ streamlit>=1.25.0
 
 # RAG / semantic search (Streamlit app + rag_pipeline.py)
 sentence-transformers>=2.2.0
+rank-bm25>=0.2.2
 
 # Optional — not imported by app_streamlit or rag_pipeline (uncomment if you need it elsewhere)
 # langchain>=0.1.0
