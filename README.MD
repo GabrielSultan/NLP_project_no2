@@ -4,16 +4,37 @@ Using RAG in the Streamlit Application
 
   1. Install Ollama: https://ollama.com
   2. **Keep Ollama running** in backgroud.
-     - Windows / macOS: open the Ollama application or run `.
+     - Windows / macOS: open the Ollama application.
      - Linux: if needed, run in a terminal:  ollama serve
   3. Download the model once:
-        ollama pull llama3.2
+        `ollama pull llama3.2`
   4. Start Streamlit (from the project root):
-        python -m streamlit run streamlit_app/app_streamlit.py
-  5. In the RAG tab/page: enter a question and click “Retrieve & generate answer”.
+        `python -m streamlit run streamlit_app/app_streamlit.py`
+  5. In the **RAG / QA** tab: enter a question and click “Retrieve & generate answer”.
 
 If Ollama isn’t running, answer generation will fail (connection error to the local API,
 usually http://127.0.0.1:11434).
+
+
+
+Example questions (RAG / QA tab)
+--------------------------------
+The corpus is French insurance-style reviews. After the embedding index is ready, you can
+test retrieval + generation with questions such as:
+
+**Delays & claims:**  
+- Que disent les clients sur les délais de remboursement ou de traitement des dossiers ?  
+- Quels avis mentionnent des difficultés après un sinistre auto ou habitation ?
+
+**Service & satisfaction:**  
+- Comment les assurés décrivent le service client ou le contact téléphonique ?  
+- Qu’est-ce qui ressort sur la souscription en ligne ou la clarté des contrats ?
+
+**Price & guarantees:**  
+- Les avis parlent-ils du rapport qualité-prix ou des tarifs ?  
+- Y a-t-il des retours sur les exclusions de garantie ou la lecture du contrat ?
+
+You can also narrow retrieval with the **Insurer** filter if several companies appear in the index.
 
 
 
@@ -21,7 +42,7 @@ Building the vector index (embeddings)
 --------------------------------------
 You can build the index **without** Ollama, for example:
 
-        python scripts/build_rag_index.py --max-documents 4000
+`python scripts/build_rag_index.py --max-documents 4000`
 
 or by using the “Build embedding index” button in the app. Only the LLM call to generate
 an answer requires Ollama.
