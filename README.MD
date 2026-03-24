@@ -1,10 +1,5 @@
 Using RAG in the Streamlit Application
 
-
-Do you need to launch Ollama before Streamlit?
-----------------------------------------------
-Yes, to **ask a question and get a generated answer**:
-
   1. Install Ollama: https://ollama.com
   2. **Keep Ollama running** (when launched, the Ollama app typically starts the server in the background).
      - Windows / macOS: open the Ollama application (look for its icon in the taskbar).
