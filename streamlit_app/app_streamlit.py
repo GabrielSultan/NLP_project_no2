@@ -286,29 +286,6 @@ def render_full_pipeline_tab() -> None:
             st.caption(extra)
             st.text((h.text or "")[:900] + ("…" if len(h.text or "") > 900 else ""))
 
-        with st.expander("Stage details (debug)"):
-            st.write(f"**Top {len(sim.stage_bm25)} BM25** (index preview)")
-            st.json(
-                [
-                    {
-                        "corpus_index": x.corpus_index,
-                        "bm25": round(x.bm25_score, 4),
-                        "insurer": str(x.meta.get("assureur", ""))[:40],
-                    }
-                    for x in sim.stage_bm25[:12]
-                ]
-            )
-            st.write(f"**Top {len(sim.stage_biencoder)} bi-encoder**")
-            st.json(
-                [
-                    {
-                        "corpus_index": x.corpus_index,
-                        "cos": round(x.biencoder_score, 4),
-                    }
-                    for x in sim.stage_biencoder[:12]
-                ]
-            )
-
 
 def main():
     st.title("Insurance Reviews — NLP")
