@@ -1,6 +1,6 @@
 """
-Streamlit : prédiction de thématique (DistilBERT fine-tuné), RAG / QA (Ollama),
-et pipeline complet (thème + résumé + sentiment + avis similaires BM25 → MiniLM → Ollama).
+Streamlit : pipeline complet (thème + résumé + sentiment + avis similaires BM25 → MiniLM → Ollama)
+et RAG / QA (Ollama).
 
 Prérequis Ollama : `ollama pull llama3.2` (RAG et rerank des avis similaires).
 
@@ -16,7 +16,6 @@ import streamlit as st
 
 import rag_pipeline as rag
 import review_analysis_pipeline as review_pipe
-import review_preprocess
 import thematic_distilbert as thematic
 from similar_reviews_pipeline import BI_ENCODER_MODEL, SimilarReviewsIndex
 
@@ -85,56 +84,6 @@ def load_sentiment_hf():
     from transformers import pipeline
 
     return pipeline("sentiment-analysis", model=review_pipe.SENTIMENT_MODEL)
-
-
-def render_thematic_tab() -> None:
-    st.subheader("Prédiction de la thématique")
-    st.caption(
-        "Modèle **DistilBERT multilingue** fine-tuné (notebook §7.2). "
-        "Ton texte est normalisé comme **`avis_traite`** (notebook : minuscules, sans ponctuation, "
-        "stopwords FR, lemmes simplemma) — sans orthographe / traduction / résumé."
-    )
-    if not thematic.is_thematic_model_ready(ARTIFACTS_DIR):
-        st.warning(
-            "Aucun modèle dans `artifacts/distilbert_thematic/`. "
-            "Exécute la cellule **7.2** du notebook jusqu’à la fin (sauvegarde automatique), puis relance l’app."
-        )
-        return
-
-    m_model = thematic.bundle_mtime(ARTIFACTS_DIR)
-    try:
-        bundle = load_thematic_bundle_cached(ARTIFACTS_DIR, m_model)
-    except Exception as e:
-        st.error(f"Impossible de charger le modèle : {e}")
-        return
-
-    text = st.text_area("Avis client (français)", height=160, key="thematic_input")
-    if st.button("Prédire la thématique", key="thematic_predict_btn"):
-        raw = (text or "").strip()
-        if not raw:
-            st.warning("Saisis un texte d’avis.")
-        else:
-            processed = review_preprocess.preprocess_like_avis_traite(raw, ARTIFACTS_DIR)
-            with st.expander("Texte après prétraitement (équivalent `avis_traite`)", expanded=False):
-                st.text(processed if processed else "(vide)")
-            if not processed:
-                st.warning(
-                    "Après prétraitement, le texte est vide (avis trop court, ou uniquement des "
-                    "mots vides / chiffres). Élargis la formulation."
-                )
-            else:
-                with st.spinner("Inférence DistilBERT…"):
-                    probs = thematic.predict_thematic_proba(bundle, processed)
-                if not probs:
-                    st.error("Aucune prédiction.")
-                else:
-                    best_label, best_p = probs[0]
-                    st.markdown(f"### Thématique prédite : **{best_label}**")
-                    st.progress(min(1.0, max(0.0, best_p)))
-                    st.caption(f"Confiance (probabilité max) : **{best_p:.1%}**")
-                    st.markdown("**Probabilités par classe** (explication)")
-                    for lab, p in probs:
-                        st.write(f"- `{lab}` : {p:.2%}")
 
 
 def render_rag_tab() -> None:
@@ -363,11 +312,7 @@ def render_full_pipeline_tab() -> None:
 
 def main():
     st.title("Insurance Reviews — NLP")
-    tab_pred, tab_pipe, tab_rag = st.tabs(
-        ["Prédiction thématique (DistilBERT)", "Pipeline complet", "RAG / QA"]
-    )
-    with tab_pred:
-        render_thematic_tab()
+    tab_pipe, tab_rag = st.tabs(["Pipeline complet", "RAG / QA"])
     with tab_pipe:
         render_full_pipeline_tab()
     with tab_rag:

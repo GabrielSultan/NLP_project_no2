@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -26,9 +27,10 @@ BIENCODER_TOP_K = 25
 OLLAMA_POOL_K = 10
 FINAL_TOP_K = 5
 
-MAX_CHARS_OLLAMA = 1200
+# Contexte par appel : 2 blocs + instructions ; réduire si Ollama renvoie 500 (souvent RAM/VRAM).
+MAX_CHARS_OLLAMA = int(os.environ.get("OLLAMA_RERANK_MAX_CHARS", "800"))
 
-OLLAMA_MODEL = "llama3.2"
+OLLAMA_MODEL = os.environ.get("OLLAMA_RERANK_MODEL", os.environ.get("OLLAMA_MODEL", "llama3.2"))
 DEFAULT_OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 
 
@@ -147,20 +149,34 @@ def _ollama_similarity_score(
     base_url: str = DEFAULT_OLLAMA_BASE_URL,
     timeout_s: float = 90.0,
 ) -> float:
-    """Score 0–10 : similarité entre deux avis (une requête /api/generate)."""
+    """
+    Score 0–10 via /api/chat (même API que le RAG du projet, souvent plus stable que /api/generate).
+    """
     q = (query or "")[:MAX_CHARS_OLLAMA]
     c = (candidate or "")[:MAX_CHARS_OLLAMA]
-    prompt = (
-        "Tu compares deux avis clients sur des assureurs (français). "
-        "Évalue la similarité du fond (problèmes, satisfaction, thèmes) sur une échelle de 0 à 10 "
-        "(10 = très similaires). Réponds par UN SEUL nombre décimal, rien d'autre.\n\n"
-        f"Avis de référence :\n{q}\n\n"
-        f"Avis à comparer :\n{c}\n\n"
-        "Score (0-10) :"
+    system = (
+        "Tu réponds uniquement par un nombre décimal entre 0 et 10, sans texte avant ni après. "
+        "0 = pas similaires, 10 = très similaires sur le fond (thèmes, problèmes, ton)."
     )
-    url = base_url.rstrip("/") + "/api/generate"
+    user_content = (
+        "Compare ces deux avis clients assurance (français). Score de similarité 0-10.\n\n"
+        f"Avis de référence :\n{q}\n\nAvis à comparer :\n{c}"
+    )
+    url = base_url.rstrip("/") + "/api/chat"
     body = json.dumps(
-        {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+        {
+            "model": OLLAMA_MODEL,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
+            "options": {
+                "temperature": 0.1,
+                # Très court : moins de charge mémoire / moins de plantages serveur
+                "num_predict": 16,
+            },
+        },
         ensure_ascii=False,
     ).encode("utf-8")
     req = urllib.request.Request(
@@ -169,9 +185,30 @@ def _ollama_similarity_score(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
-    response = (payload.get("response") or "").strip()
+
+    payload: Optional[Dict[str, Any]] = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as e:
+            try:
+                body_err = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body_err = ""
+            err = RuntimeError(
+                f"Ollama HTTP {e.code}: {e.reason}. {body_err[:800]}".strip()
+            )
+            if e.code in (500, 502, 503) and attempt == 0:
+                time.sleep(1.5)
+                continue
+            raise err from e
+
+    if payload is None:
+        raise RuntimeError("Ollama: aucune réponse")
+
+    response = ((payload.get("message") or {}).get("content") or "").strip()
     m = re.search(r"\b(10(?:\.0+)?|[0-9](?:\.\d+)?)\b", response)
     if not m:
         return 0.0
