@@ -1,0 +1,216 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!70!black,
+  citecolor=blue!60!black,
+}
+
+\graphicspath{{../screenshots/}}
+
+\title{French Insurance Customer Reviews:\\
+NLP Analysis, Thematic Classification, and Interactive Application}
+\author{Gabriel Sutlan --- NLP Project 2}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report describes an end-to-end natural language processing project on French insurance customer reviews: data preparation and exploratory analysis, distributional and neural representations (Word2Vec, FastText, LDA), supervised thematic classification (TF-IDF with logistic regression and fine-tuned DistilBERT), and a Streamlit application combining summarization, multilingual sentiment, retrieval-augmented question answering, and a multi-stage similar-review search pipeline. All model cards and technical choices are grounded in the project notebook and application code, with hyperlinks to official model documentation where applicable.
+\end{abstract}
+
+\section{Dataset and objectives}
+The corpus consists of French reviews with metadata such as insurer (\texttt{assureur}), rating (\texttt{note}), product type, and publication dates. The analytical goal is to surface recurring themes (claims, customer service, pricing, reimbursements, etc.), compare classical and transformer-based classifiers, and expose the results through an interactive tool suitable for qualitative exploration rather than production deployment without further validation.
+
+\section{``Cleaned'' data and time-saving scale variables}
+The exported ``cleaned'' table is the result of a pragmatic pipeline rather than a full pass over every row of the original CSV. To respect time constraints during development, the notebook applies \textbf{scale factors} to expensive steps: spell correction uses a random fraction \texttt{SPELL\_SCALE = 0.01} (one percent of rows), and English translation uses \texttt{TRANSLATE\_SCALE = 0.005}. French abstractive summaries with BARThez use \texttt{RESUME\_FRAC = 0.02}. Setting these parameters to \texttt{1.0} would process the entire dataset; in a real deployment one would typically validate the stack on a subset, then switch the scales to full coverage for the final artifact. The Streamlit preprocessing path (\texttt{review\_preprocess.py}) mirrors the core text normalization used for thematic modeling (lowercasing, punctuation removal, NLTK tokenization, French stopwords, \texttt{simplemma} lemmatization) and does not depend on those partial corrections for inference.
+
+\section{Preprocessing for modeling}
+Token-level preprocessing follows a fixed recipe aligned with the notebook: apostrophes are normalized, punctuation is stripped, tokens are filtered by length and digits, and lemmas are produced with \texttt{simplemma} for French. Stopwords come from the notebook artifact when available, otherwise NLTK French stopwords plus \texttt{très}. This design favors a compact vocabulary for bag-of-words and embedding training while preserving insurance-related terms that carry sentiment and topic signal.
+
+\section{Exploratory analysis and n-grams}
+Unigrams, bigrams, and trigrams were compared before and after cleaning using \texttt{CountVectorizer} with \texttt{max\_features=50} on a sample of 5{,}000 raw texts versus all processed texts, illustrating how normalization reduces noise and highlights domain terms. Rating distributions and temporal views by insurer support interpretation of embedding and topic structure. Figures~\ref{fig:ngrams}--\ref{fig:yearly} summarize these views.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\linewidth]{N-grams.png}
+  \caption{N-gram frequency comparison (before vs.\ after preprocessing) for unigrams, bigrams, and trigrams.}
+  \label{fig:ngrams}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{Distribution_of_ratings.png}
+    \caption{Rating distribution.}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{Yearly_average_rating_by_insurer.png}
+    \caption{Yearly average rating by insurer (subset).}
+  \end{subfigure}
+  \caption{Descriptive views of the review scores.}
+  \label{fig:yearly}
+\end{figure}
+
+\section{Word2Vec and FastText embeddings}
+\textbf{Word2Vec} was trained with Gensim on lemmatized review tokens: \texttt{vector\_size=200}, \texttt{window=5}, \texttt{min\_count=7}, \texttt{workers=1}, \texttt{seed=42}. The dimension and context window follow common defaults for medium-sized corpora; \texttt{min\_count} suppresses rare tokens that inflate noise. Technical reference~\cite{ref:gensim-w2v}. Two-dimensional PCA projections color words by average rating help interpret semantic neighborhoods (Figure~\ref{fig:w2vft}).
+
+\textbf{FastText} French crawl vectors (\texttt{cc.fr.300}, 300 dimensions) were loaded without additional training to compare static subword-aware embeddings with the domain-trained Word2Vec model. Documentation and download policy~\cite{ref:fasttext-vec}. FastText handles morphological variants and OOV pieces via character n-grams, which often yields different nearest neighbors than a corpus-specific Word2Vec model.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{Word2Vec_2D_PCA.png}
+    \caption{Word2Vec PCA (2D).}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{FastText _PCA_2Dprojection.png}
+    \caption{FastText PCA (2D), same sampling logic.}
+  \end{subfigure}
+  \caption{PCA projections of embedding spaces (color encodes average rating where available).}
+  \label{fig:w2vft}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{w2w_3D_projector_1.png}
+    \caption{TensorBoard-style 3D view (Word2Vec export).}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{FastText _3D.png}
+    \caption{3D projection for FastText vectors.}
+  \end{subfigure}
+  \caption{Three-dimensional embedding visualizations for exploration.}
+\end{figure}
+
+\section{LDA topic exploration}
+Latent Dirichlet Allocation used bigram documents, a dictionary/TF-IDF corpus, and \texttt{LdaMulticore} with \texttt{alpha='asymmetric'} and \texttt{eta='auto'}. The number of topics $k$ was selected from $\{4,6,8,10,12\}$ by maximizing the $c_v$ coherence score from Gensim's \texttt{CoherenceModel}, which balances interpretability against granularity. TF-IDF weighting reduces the dominance of ultra-frequent terms before topic induction.
+
+\section{Supervised thematic classification}
+Thematic labels for training come from a deterministic keyword and Word2Vec-augmented detector applied in the notebook, yielding classes such as \texttt{service\_client}, \texttt{prix}, \texttt{sinistres}, and \texttt{remboursements}.
+
+\textbf{TF-IDF + logistic regression:} \texttt{TfidfVectorizer(max\_features=5000, ngram\_range=(1,2))} captures unigrams and bigrams within a controlled vocabulary; \texttt{LogisticRegression(max\_iter=500, random\_seed=42)} provides a strong linear baseline with calibrated probabilities under mild sparsity; see the vectorizer documentation~\cite{ref:sklearn-tfidf}.
+
+\textbf{Fine-tuned DistilBERT:} The base checkpoint \texttt{distilbert-base-multilingual-cased}~\cite{ref:distilbert} matches the French (and mixed) text while remaining lighter than full BERT. Training uses the Hugging Face \texttt{Trainer} API~\cite{ref:hf-trainer} with \texttt{MAX\_LEN=128} (sufficient for lemmatized reviews and standard for DistilBERT fine-tunes), learning rate $2\times 10^{-5}$, batch sizes 16 (train) and 32 (eval), two epochs, evaluation each epoch, no checkpoint saving to disk during training, mixed precision when CUDA is available, and a stratified 80/20 split. These choices follow widespread practice for sentence classification on transformer encoders~\cite{ref:distilbert}. The fine-tuned weights are saved under \texttt{artifacts/distilbert\_thematic/} for the application.
+
+\section{Streamlit application architecture}
+Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab runs preprocessing, DistilBERT thematic probabilities, a French summarizer, a multilingual sentiment head, and similar-review retrieval. The \textbf{RAG} tab embeds chunked reviews and calls a local LLM for grounded answers.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw, rounded corners, align=center, minimum width=2.5cm, minimum height=0.7cm},
+  arr/.style={-{Latex}, thick}
+]
+\node[box] (in) at (0,0) {User input};
+\node[box] (prep) at (0,-1.1) {Preprocess\\\texttt{simplemma} + stops};
+\node[box] (db) at (-3.0,-2.4) {DistilBERT\\theme};
+\node[box] (sum) at (0,-2.4) {BARTHez\\summary};
+\node[box] (sent) at (3.0,-2.4) {BERT\\sentiment};
+\node[box] (sim) at (0,-3.7) {BM25 $\rightarrow$ MiniLM $\rightarrow$ Ollama};
+\draw[arr] (in) -- (prep);
+\draw[arr] (prep) -- (db);
+\draw[arr] (prep) -- (sum);
+\draw[arr] (prep) -- (sent);
+\draw[arr] (prep) -- (sim);
+\end{tikzpicture}
+\caption{Simplified single-review analysis pipeline in the Streamlit app.}
+\label{fig:arch}
+\end{figure}
+
+\textbf{Summarization} uses \texttt{moussaKam/barthez-orangesum-abstract}~\cite{ref:barthez} (French BART-style model). Generation uses \texttt{do\_sample=False}, dynamic \texttt{max\_length} and \texttt{min\_length} from review length, truncation, and a minimum word threshold so very short texts skip summarization.
+
+\textbf{Sentiment} uses \texttt{nlptown/bert-base-multilingual-uncased-sentiment}~\cite{ref:sentiment-bert} (five-star heads); star predictions are mapped to coarse polarity for display.
+
+\textbf{Similar reviews:} \texttt{rank\_bm25} implements Okapi BM25~\cite{ref:bm25} over French-tokenized corpus rows (default cap 4{,}000 rows for latency). The bi-encoder is \texttt{sentence-transformers/all-MiniLM-L6-v2}~\cite{ref:minilm-l6} (384-d, efficient English-oriented sentence embeddings; acceptable here for shared insurance vocabulary). Pipeline: top 50 BM25 $\rightarrow$ top 25 by cosine similarity $\rightarrow$ top 10 pool $\rightarrow$ optional Ollama rerank with \texttt{llama3.2}~\cite{ref:ollama-llama}, temperature 0.1, short \texttt{num\_predict} for a numeric similarity score, yielding five final hits.
+
+\textbf{RAG:} Chunks default to 90 words with 20-word overlap. Embeddings use \texttt{paraphrase-multilingual-MiniLM-L12-v2}~\cite{ref:paraphrase-l12} (multilingual semantic search, 384-d). Retrieval is cosine similarity on L2-normalized vectors; generation uses Ollama \texttt{llama3.2}~\cite{ref:ollama-llama} with temperature 0.3 and bounded context in the user prompt. Index build parameters are fingerprinted so stale indices are detectable when CSV or hyperparameters change.
+
+\section{Qualitative embedding figures (thematic probes)}
+Additional projector screenshots (e.g.\ neighborhoods around \textit{refus} and \textit{amabilité}) illustrate how local geometry relates to customer-service semantics in the trained Word2Vec space.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{w2w_3D_refus.png}
+    \caption{Neighborhood probe: \textit{refus}.}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.48\textwidth}
+    \includegraphics[width=\linewidth]{w2w_3D_amabilité.png}
+    \caption{Neighborhood probe: \textit{amabilité}.}
+  \end{subfigure}
+  \caption{Word2Vec embedding projector views for thematic interpretation.}
+\end{figure}
+
+\section{Limitations and conclusion}
+The pipeline mixes research prototypes (partial spell-check and translation coverage, capped similar-review corpus, RAG document limits) with solid core modeling (stratified splits, coherence-driven LDA, DistilBERT fine-tuning). Production use would require full-data cleaning, systematic evaluation on held-out temporal splits, monitoring of Ollama latency and failures, and privacy review of third-party model endpoints if any were introduced. Overall, the project demonstrates a coherent stack from classical NLP through transformers to retrieval-augmented generation, with explicit hyperparameters and traceable model cards.
+
+\section*{References and clickable links}
+\addcontentsline{toc}{section}{References}
+\phantomsection
+\begin{thebibliography}{99}
+
+\bibitem{ref:gensim-w2v}
+R.~Rehurek, \emph{Gensim: Word2Vec model documentation.}
+\url{https://radimrehurek.com/gensim/models/word2vec.html}
+
+\bibitem{ref:fasttext-vec}
+Facebook Research, \emph{FastText: Pretrained vectors for 157 languages.}
+\url{https://fasttext.cc/docs/en/pretrained-vectors.html}
+
+\bibitem{ref:sklearn-tfidf}
+scikit-learn developers, \emph{TfidfVectorizer.}
+\url{https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html}
+
+\bibitem{ref:distilbert}
+Hugging Face, \emph{distilbert-base-multilingual-cased} model card.
+\url{https://huggingface.co/distilbert-base-multilingual-cased}
+
+\bibitem{ref:hf-trainer}
+Hugging Face, \emph{Transformers: Trainer API.}
+\url{https://huggingface.co/docs/transformers/main_classes/trainer}
+
+\bibitem{ref:barthez}
+Moussa Kamalis et al., \emph{moussaKam/barthez-orangesum-abstract.}
+\url{https://huggingface.co/moussaKam/barthez-orangesum-abstract}
+
+\bibitem{ref:sentiment-bert}
+nlptown, \emph{bert-base-multilingual-uncased-sentiment.}
+\url{https://huggingface.co/nlptown/bert-base-multilingual-uncased-sentiment}
+
+\bibitem{ref:bm25}
+PyPI, \emph{rank-bm25: BM25 ranking function implementation.}
+\url{https://pypi.org/project/rank-bm25/}
+
+\bibitem{ref:minilm-l6}
+sentence-transformers, \emph{all-MiniLM-L6-v2.}
+\url{https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2}
+
+\bibitem{ref:ollama-llama}
+Ollama, \emph{Llama~3.2} library page.
+\url{https://ollama.com/library/llama3.2}
+
+\bibitem{ref:paraphrase-l12}
+sentence-transformers, \emph{paraphrase-multilingual-MiniLM-L12-v2.}
+\url{https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+
+\end{thebibliography}
+
+\end{document}
