@@ -1,8 +1,14 @@
 """
-Streamlit app: full pipeline (theme + summary + sentiment + similar reviews BM25 → MiniLM → Ollama)
-and RAG / QA (Ollama).
+Streamlit entrypoint: two tabs — full review-analysis pipeline and RAG / QA.
 
-Ollama: `ollama pull llama3.2` (RAG and similar-review reranking).
+- **Full pipeline:** DistilBERT theme (optional), BARThez FR summary, multilingual
+  sentiment, then similar-review retrieval (BM25 → MiniLM → optional Ollama rerank).
+- **RAG:** dense retrieval over precomputed chunk embeddings + Ollama generation.
+
+Heavy models and indexes are wrapped in `st.cache_resource` / `st.cache_data` with
+mtime keys so Streamlit reloads when artifacts or CSV change.
+
+Ollama: `ollama pull llama3.2` for RAG answers and similar-review reranking.
 
 Run from repo root:
     streamlit run streamlit_app/app_streamlit.py
@@ -19,6 +25,7 @@ import review_analysis_pipeline as review_pipe
 import thematic_distilbert as thematic
 from similar_reviews_pipeline import BI_ENCODER_MODEL, SimilarReviewsIndex
 
+# Repo root (parent of `streamlit_app/`)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = str(_PROJECT_ROOT / "data")
 ARTIFACTS_DIR = str(_PROJECT_ROOT / "artifacts")
@@ -28,6 +35,7 @@ _ALL_INSURERS = "— All insurers —"
 
 @st.cache_data
 def insurer_choices_for_index(_mtime: float, artifacts_dir: str) -> list[str]:
+    """Distinct `assureur` values from RAG chunk metadata; `_mtime` busts cache on rebuild."""
     loaded = rag.load_index(artifacts_dir)
     if loaded is None:
         return []
@@ -37,6 +45,7 @@ def insurer_choices_for_index(_mtime: float, artifacts_dir: str) -> list[str]:
 
 @st.cache_resource
 def load_rag_embedder():
+    """Shared SentenceTransformer for query encoding (same id as index build)."""
     from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer(rag.DEFAULT_EMBED_MODEL)
@@ -52,11 +61,13 @@ def _rag_embeddings_mtime(artifacts_dir: str) -> float:
 
 @st.cache_resource
 def load_rag_vector_bundle(artifacts_dir: str, _embed_mtime: float):
+    """Load npy + pickle + config; `_embed_mtime` invalidates when `embeddings.npy` changes."""
     return rag.load_index(artifacts_dir)
 
 
 @st.cache_resource
 def load_thematic_bundle_cached(artifacts_dir: str, _model_mtime: float):
+    """DistilBERT weights; cache key tied to artifact mtime."""
     return thematic.load_thematic_bundle(artifacts_dir)
 
 
@@ -289,6 +300,7 @@ def render_full_pipeline_tab() -> None:
 
 def main():
     st.title("Insurance Reviews — NLP")
+    # Two independent flows: multi-model review analysis vs. corpus QA
     tab_pipe, tab_rag = st.tabs(["Full pipeline", "RAG / QA"])
     with tab_pipe:
         render_full_pipeline_tab()

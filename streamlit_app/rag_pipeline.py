@@ -1,6 +1,10 @@
 """
-RAG utilities: chunk reviews, embed with sentence-transformers, retrieve by cosine
-similarity, then answer with a local Ollama chat model (llama3.2).
+RAG utilities for the Streamlit tab: chunk reviews, embed with sentence-transformers,
+retrieve by cosine similarity (dot product on L2-normalized vectors), then answer
+with a local Ollama chat model (`llama3.2` by default).
+
+Index files live under `artifacts/rag/` (`embeddings.npy`, `chunks.pkl`, `build_config.json`).
+Build via `scripts/build_rag_index.py` or `build_and_save_index()`.
 """
 from __future__ import annotations
 
@@ -14,10 +18,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-# Multilingual model suited for French semantic search
+# Multilingual MiniLM variant; matches notebook RAG section
 DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-# Ollama (fixed model for this project)
+# Default chat model for grounded answers (override only if you change the stack)
 OLLAMA_MODEL = "llama3.2"
 DEFAULT_OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 
@@ -223,6 +227,7 @@ def retrieve(
 
         embedder = SentenceTransformer(embed_model)
     q = embedder.encode([query], convert_to_numpy=True, normalize_embeddings=True)[0].astype(np.float32)
+    # Row-wise dot product == cosine similarity (both sides normalized at encode time)
     scores = embeddings @ q
     n = len(scores)
     if insurer_filter:

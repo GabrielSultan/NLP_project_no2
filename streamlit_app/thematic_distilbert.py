@@ -1,15 +1,15 @@
 """
-Inference: DistilBERT multilingual fine-tuned for thematic classification of reviews.
+Thematic classification inference (DistilBERT multilingual, sequence classification).
 
-The `artifacts/distilbert_thematic/` directory is produced by the notebook (section 7.2)
-after `save_pretrained` is called on the model and tokenizer (id2label / label2id stored in config).
+Weights live under `artifacts/distilbert_thematic/` (tokenizer + model + config with id2label),
+produced by notebook section 7.2 via Hugging Face `save_pretrained`.
 """
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-# Matches the notebook setting (section 7.2)
+# Max sequence length for tokenization (must match notebook / training)
 DEFAULT_MAX_LENGTH = 128
 
 
@@ -104,6 +104,7 @@ def predict_thematic_proba(
     enc = {k: v.to(device) for k, v in enc.items()}
     with torch.no_grad():
         logits = model(**enc).logits
+    # Single-sequence batch → one row of class logits
     probs = torch.softmax(logits, dim=-1).cpu().numpy().ravel()
     if labels and len(labels) == len(probs):
         pairs = list(zip(labels, [float(p) for p in probs]))

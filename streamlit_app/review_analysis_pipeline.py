@@ -1,6 +1,12 @@
 """
-Single-review analysis pipeline: theme (DistilBERT), French summary, multilingual sentiment,
-similar reviews (BM25 → bi-encoder → Ollama).
+Orchestrate a single user review through all Streamlit “full pipeline” models.
+
+Order of operations:
+  1) Preprocess text for theme (lemmatized string).
+  2) DistilBERT theme probabilities (optional if model missing).
+  3) French abstractive summary on raw text (BARThez).
+  4) Multilingual 5-star sentiment → coarse polarity on raw text.
+  5) Similar-review search on raw text (BM25 → MiniLM → optional Ollama rerank).
 """
 from __future__ import annotations
 
@@ -21,19 +27,21 @@ from similar_reviews_pipeline import (
 SUMMARY_MODEL = "moussaKam/barthez-orangesum-abstract"
 SENTIMENT_MODEL = "nlptown/bert-base-multilingual-uncased-sentiment"
 
-# Summary: skip absurdly short inputs
+# BARThez: skip summarization when input is too short to be meaningful
 MIN_WORDS_SUMMARY = 28
 MAX_SUMMARY_INPUT_CHARS = 2500
 
 
 @dataclass
 class ReviewAnalysisResult:
+    """Aggregated outputs for one pasted review (UI displays each block separately)."""
+
     raw_text: str
-    thematic_processed: str
+    thematic_processed: str  # lemmatized string fed to DistilBERT
     thematic_probs: List[Tuple[str, float]] = field(default_factory=list)
     thematic_best: Optional[Tuple[str, float]] = None
     summary_fr: str = ""
-    sentiment_label: str = ""
+    sentiment_label: str = ""  # Positive / Negative / Neutral after star mapping
     sentiment_score: float = 0.0
     similar: Optional[SimilarReviewsResult] = None
     summary_skipped_reason: Optional[str] = None
@@ -41,6 +49,7 @@ class ReviewAnalysisResult:
 
 
 def _map_stars_to_polarity(label: str, score: float) -> Tuple[str, float]:
+    """Map nlptown 1–5 star label to three-way polarity for display."""
     m = re.search(r"([1-5])", str(label) or "")
     stars = int(m.group(1)) if m else 3
     if stars >= 4:
@@ -98,6 +107,7 @@ def run_review_analysis(
     if not raw:
         return out
 
+    # Theme model expects notebook-aligned lemmas; other heads use raw text
     processed = review_preprocess.preprocess_like_avis_traite(raw, artifacts_dir)
     out.thematic_processed = processed
 
@@ -114,6 +124,7 @@ def run_review_analysis(
     out.summary_fr, out.summary_skipped_reason = summarize_french(raw, summarizer)
     out.sentiment_label, out.sentiment_score = sentiment_multilingual(raw, sentiment_pipe)
 
+    # Similarity index is built from raw `avis` rows; query with original paste
     out.similar = find_similar_reviews(
         similar_index,
         raw,

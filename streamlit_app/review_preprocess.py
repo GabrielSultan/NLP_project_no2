@@ -1,9 +1,11 @@
 """
-Same processing pipeline as `avis_traite` from the notebook (preprocessing cell):
-lowercasing, punctuation removal, NLTK tokenization, stopwords/digit filtering, simplemma lemmatization.
+French review preprocessing aligned with notebook column `avis_traite`.
 
-No spell correction, translation, or summarization (the user provides the equivalent of `avis`).
-Stopwords can be read from `artifacts/preprocess.pkl` if the notebook has been executed.
+Pipeline (in order): lowercase, apostrophe spacing, strip punctuation, NLTK tokenize,
+remove stopwords / digits / very short tokens, lemmatize with simplemma.
+
+Not applied here: spell-check, translation, summarization (raw user text is unchanged for those paths).
+Optional: load stopword set from `artifacts/preprocess.pkl` when the notebook has produced it.
 """
 from __future__ import annotations
 
@@ -66,7 +68,7 @@ def preprocess_like_avis_traite(text: object, artifacts_dir: Optional[str] = Non
     stop = _french_stopwords(artifacts_abs)
 
     s_low = s.lower()
-    s_low = s_low.replace("'", " ")
+    s_low = s_low.replace("'", " ")  # avoid glued tokens after apostrophe removal
     s_low = "".join(c for c in s_low if c not in punctuation)
     tokens = nltk.word_tokenize(s_low)
     tokens = [
@@ -74,5 +76,6 @@ def preprocess_like_avis_traite(text: object, artifacts_dir: Optional[str] = Non
         for t in tokens
         if t not in stop and len(t) > 1 and not any(c.isdigit() for c in t)
     ]
+    # Fallback to surface form if lemmatizer returns nothing for a token
     lemmas = [simplemma.lemmatize(t, lang="fr") or t for t in tokens]
     return " ".join(lemmas)

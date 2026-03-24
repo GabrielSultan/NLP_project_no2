@@ -1,8 +1,13 @@
 """
-Similar-review search: BM25 (top 50) → all-MiniLM-L6-v2 bi-encoder (top 25)
-→ top 10 → rerank to top 5 with Ollama scores (llama3.2), on a CSV subset.
+Similar-review retrieval over a bounded CSV slice.
 
-Inspired by project 1 pipeline (BM25 + reranking + Ollama).
+Stages:
+  1) BM25 lexical filter (top BM25_TOP_K).
+  2) Cosine similarity on L2-normalized MiniLM embeddings within that pool.
+  3) Take top OLLAMA_POOL_K for optional LLM scoring.
+  4) Ollama assigns 0–10 semantic similarity; keep FINAL_TOP_K.
+
+Design note: MiniLM is English-centric but works reasonably on shared insurance vocabulary.
 """
 from __future__ import annotations
 
@@ -19,15 +24,15 @@ import numpy as np
 import pandas as pd
 from rank_bm25 import BM25Okapi
 
-# English bi-encoder; fine for shared insurance vocabulary with French text
+# Sentence-transformer id (query and corpus rows encoded with the same model)
 BI_ENCODER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-BM25_TOP_K = 50
-BIENCODER_TOP_K = 25
-OLLAMA_POOL_K = 10
-FINAL_TOP_K = 5
+BM25_TOP_K = 50  # lexical recall stage
+BIENCODER_TOP_K = 25  # dense rerank within BM25 hits
+OLLAMA_POOL_K = 10  # how many candidates get an LLM score (expensive)
+FINAL_TOP_K = 5  # rows shown in the UI
 
-# Per call: two text blocks + instructions; lower if Ollama returns 500 (often RAM/VRAM).
+# Truncate query/candidate text sent to Ollama (VRAM / HTTP stability)
 MAX_CHARS_OLLAMA = int(os.environ.get("OLLAMA_RERANK_MAX_CHARS", "800"))
 
 OLLAMA_MODEL = os.environ.get("OLLAMA_RERANK_MODEL", os.environ.get("OLLAMA_MODEL", "llama3.2"))
@@ -35,6 +40,7 @@ DEFAULT_OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"
 
 
 def tokenize_fr(text: str) -> List[str]:
+    """Light French tokenization for BM25 (different from notebook lemmatization)."""
     import nltk
     from nltk.corpus import stopwords
     from nltk.tokenize import word_tokenize
@@ -247,6 +253,7 @@ def find_similar_reviews(
     idx_bm = np.argpartition(-bm25_scores, k_bm - 1)[:k_bm]
     idx_bm = idx_bm[np.argsort(-bm25_scores[idx_bm])]
 
+    # Dense scores: dot product == cosine similarity (rows are L2-normalized)
     q_emb = index.encode_query(q, embedder)
     sub_emb = index.embeddings[idx_bm]
     bi_scores = (sub_emb @ q_emb).astype(np.float64)
