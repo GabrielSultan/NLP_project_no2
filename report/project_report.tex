@@ -34,7 +34,7 @@ NLP Analysis, Thematic Classification, and Interactive Application}
   \centering
   \includegraphics[width=\textwidth]{mainImage.png}
   \captionsetup{type=figure}
-  \captionof{figure}{Main illustration: three-dimensional projection of Word2Vec embeddings for insurance review tokens, coloured by average review rating (\texttt{viridis}). The spatial separation between higher-rated (bluer) and lower-rated (yellower) regions motivates the qualitative analysis in Section~\ref{sec:qual-emb}.}
+  \captionof{figure}{Three-dimensional projection of Word2Vec embeddings for insurance review tokens, coloured by average review rating.}
   \label{fig:main-hero}
 \end{minipage}
 \vspace{0.6em}
@@ -175,8 +175,7 @@ This separation aligns with the global structure visible in the reduced views fr
 \section{Limitations and conclusion}
 The pipeline mixes research prototypes (partial spell-check and translation coverage, capped similar-review corpus, RAG document limits) with solid core modeling (stratified splits, coherence-driven LDA, DistilBERT fine-tuning). Production use would require full-data cleaning, systematic evaluation on held-out temporal splits, monitoring of Ollama latency and failures, and privacy review of third-party model endpoints if any were introduced. Overall, the project demonstrates a coherent stack from classical NLP through transformers to retrieval-augmented generation, with explicit hyperparameters and traceable model cards.
 
-\section*{References and clickable links}
-\addcontentsline{toc}{section}{References}
+
 \phantomsection
 \begin{thebibliography}{99}
 
