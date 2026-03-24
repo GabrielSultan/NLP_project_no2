@@ -10,10 +10,12 @@ import argparse
 import os
 import sys
 
-# Project root on sys.path when run as `python scripts/build_rag_index.py`
+# Project root + streamlit_app on sys.path when run as `python scripts/build_rag_index.py`
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+STREAMLIT_APP = os.path.join(ROOT, "streamlit_app")
+for p in (STREAMLIT_APP, ROOT):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from rag_pipeline import (  # noqa: E402
     DEFAULT_EMBED_MODEL,
