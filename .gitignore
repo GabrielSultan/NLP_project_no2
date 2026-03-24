@@ -7,3 +7,9 @@ artifacts/rag/
 runs/
 distilbert_topic_ft/
 artifacts/distilbert_thematic/
+
+# Python bytecode (never commit)
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
