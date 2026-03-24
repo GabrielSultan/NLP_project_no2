@@ -175,7 +175,7 @@ def render_full_pipeline_tab() -> None:
     st.subheader("Pipeline: theme, summary, sentiment, similar reviews")
     st.caption(
         "**Similarity:** BM25 → top 50, **all-MiniLM-L6-v2** bi-encoder → top 25, "
-        "top 10 → **Ollama llama3.2** (0–10 scores) → **top 5**. CSV subset."
+        "top 10 → **Ollama llama3.2** (0–10 scores) → **top 5**. CSV subset. (from NLP project 1)"
     )
     csv_path = os.path.join(DATA_DIR, "insurance_reviews_cleaned.csv")
     if not os.path.isfile(csv_path):
