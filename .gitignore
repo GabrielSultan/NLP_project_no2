@@ -6,3 +6,4 @@ artifacts/rag/
 # TensorBoard / HF Trainer outputs (notebook section 7)
 runs/
 distilbert_topic_ft/
+artifacts/distilbert_thematic/
