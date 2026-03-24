@@ -1,0 +1,124 @@
+"""
+Pipeline d'analyse d'un avis : thématique (DistilBERT), résumé FR, sentiment multilingue,
+avis similaires (BM25 → bi-encodeur → Ollama).
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+import review_preprocess
+import thematic_distilbert as thematic
+
+from similar_reviews_pipeline import (
+    DEFAULT_OLLAMA_BASE_URL,
+    SimilarReviewsIndex,
+    SimilarReviewsResult,
+    find_similar_reviews,
+)
+
+SUMMARY_MODEL = "moussaKam/barthez-orangesum-abstract"
+SENTIMENT_MODEL = "nlptown/bert-base-multilingual-uncased-sentiment"
+
+# Résumé : éviter les appels absurdes sur textes trop courts
+MIN_WORDS_SUMMARY = 28
+MAX_SUMMARY_INPUT_CHARS = 2500
+
+
+@dataclass
+class ReviewAnalysisResult:
+    raw_text: str
+    thematic_processed: str
+    thematic_probs: List[Tuple[str, float]] = field(default_factory=list)
+    thematic_best: Optional[Tuple[str, float]] = None
+    summary_fr: str = ""
+    sentiment_label: str = ""
+    sentiment_score: float = 0.0
+    similar: Optional[SimilarReviewsResult] = None
+    summary_skipped_reason: Optional[str] = None
+    thematic_error: Optional[str] = None
+
+
+def _map_stars_to_polarity(label: str, score: float) -> Tuple[str, float]:
+    m = re.search(r"([1-5])", str(label) or "")
+    stars = int(m.group(1)) if m else 3
+    if stars >= 4:
+        return "Positif", float(score)
+    if stars <= 2:
+        return "Négatif", float(score)
+    return "Neutre", float(score)
+
+
+def summarize_french(text: str, summarizer: Any) -> Tuple[str, Optional[str]]:
+    """Retourne (résumé, raison si skip)."""
+    words = str(text).split()
+    if len(words) < MIN_WORDS_SUMMARY:
+        return str(text).strip(), "Texte trop court pour un résumé automatique (réaffichage brut)."
+    t = str(text).strip()[:MAX_SUMMARY_INPUT_CHARS]
+    try:
+        out = summarizer(
+            t,
+            max_length=min(120, max(32, len(words) // 3)),
+            min_length=max(8, min(36, len(words) // 4)),
+            do_sample=False,
+            truncation=True,
+        )
+        if isinstance(out, list) and out:
+            st = out[0].get("summary_text", "").strip()
+            return (st if st else t, None)
+    except Exception:
+        pass
+    return t, "Échec du modèle de résumé ; texte tronqué affiché."
+
+
+def sentiment_multilingual(text: str, pipe: Any) -> Tuple[str, float]:
+    t = (text or "").strip()
+    if not t:
+        return "Inconnu", 0.0
+    chunk = t[:2000]
+    r = pipe(chunk)[0]
+    return _map_stars_to_polarity(r.get("label", ""), r.get("score", 0.0))
+
+
+def run_review_analysis(
+    raw_text: str,
+    artifacts_dir: str,
+    thematic_bundle: Optional[Dict[str, Any]],
+    similar_index: SimilarReviewsIndex,
+    biencoder: Any,
+    summarizer: Any,
+    sentiment_pipe: Any,
+    use_ollama_similarity: bool = True,
+    ollama_base_url: Optional[str] = None,
+) -> ReviewAnalysisResult:
+    raw = (raw_text or "").strip()
+    out = ReviewAnalysisResult(raw_text=raw, thematic_processed="")
+
+    if not raw:
+        return out
+
+    processed = review_preprocess.preprocess_like_avis_traite(raw, artifacts_dir)
+    out.thematic_processed = processed
+
+    if thematic_bundle and processed:
+        try:
+            probs = thematic.predict_thematic_proba(thematic_bundle, processed)
+            out.thematic_probs = probs
+            out.thematic_best = probs[0] if probs else None
+        except Exception as e:
+            out.thematic_error = str(e)
+    elif thematic_bundle and not processed:
+        out.thematic_error = "Texte vide après prétraitement (thématique impossible)."
+
+    out.summary_fr, out.summary_skipped_reason = summarize_french(raw, summarizer)
+    out.sentiment_label, out.sentiment_score = sentiment_multilingual(raw, sentiment_pipe)
+
+    out.similar = find_similar_reviews(
+        similar_index,
+        raw,
+        embedder=biencoder,
+        ollama_base_url=ollama_base_url or DEFAULT_OLLAMA_BASE_URL,
+        use_ollama_rerank=use_ollama_similarity,
+    )
+    return out
