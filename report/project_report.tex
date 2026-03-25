@@ -26,7 +26,9 @@
 \g@addto@macro\UrlBreaks{\do\-\do\_}
 \makeatother
 
-\graphicspath{{../screenshots/}}
+% Ordre : copie locale dans report/ ; ../screenshots/ si CWD = report/ ;
+% screenshots/ si CWD = racine du dépôt (évite ../screenshots/ qui sort du repo).
+\graphicspath{{./}{../screenshots/}{screenshots/}}
 
 \title{French Insurance Customer Reviews:\\
 NLP Analysis, Thematic Classification, and Interactive Application}
@@ -143,15 +145,65 @@ This separation aligns with the global structure visible in the PCA and 3D panel
 \section{LDA topic exploration}
 Latent Dirichlet Allocation used bigram documents, a dictionary/TF-IDF corpus, and \texttt{LdaMulticore} with \texttt{alpha='asymmetric'} and \texttt{eta='auto'}. The number of topics $k$ was selected from $\{4,6,8,10,12\}$ by maximizing the $c_v$ coherence score from Gensim's \texttt{CoherenceModel}, which balances interpretability against granularity. TF-IDF weighting reduces the dominance of ultra-frequent terms before topic induction.
 
+\section{Deterministic thematic labels for supervision}
+\label{sec:deterministic-labels}
+Supervised models in the notebook (Section~7) need a target column \texttt{thematique}. The project uses a \textbf{deterministic weak-labelling} procedure so that labels are \textbf{reproducible}, \textbf{cheap}, and \textbf{aligned with insurance-facing axes} (claims, pricing, reimbursements, customer service, contract administration, digital channels, documents, bonuses, and a residual \texttt{autre} class).
+
+\textbf{Rationale.} Keyword rules are easy to audit and version in code; combining them with a small Word2Vec neighbourhood expansion captures near-synonyms and domain variants without hand-curating every surface form. The trade-off is explicit: a single theme per review, a fixed priority order when several rules fire, and inevitable noise---yet the signal is strong enough for a fine-tuned encoder to \textbf{generalise beyond literal keyword hits}, which is the main reason to learn a classifier on top of these targets.
+
+\textbf{Construction (notebook).} A dictionary \texttt{THEMATIQUES} maps each theme to \textbf{truncated or stem-like keyword fragments} consistent with processed text (\texttt{avis\_traite}). For each theme, the first two seed keywords that appear in the trained Word2Vec vocabulary are used to pull up to three \texttt{most\_similar} neighbours each; those neighbours are appended to the theme list (if not already present) to widen coverage without exploding the rule set. The function \texttt{detect\_thematique} tokenises the review, walks themes in a \textbf{fixed order}, and assigns the \textbf{first} theme for which any keyword appears as a whole token; if none match, the label is \texttt{autre}.
+
+
+\begin{table}[H]
+  \centering
+  \caption{Average rating by deterministic thematic label and review counts (\texttt{df\_cleaned}).}
+  \label{tab:thematique-note}
+  \begin{tabular}{lrr}
+    \toprule
+    Thematic & Mean \texttt{note} & Count \\
+    \midrule
+    \texttt{autre}            & 2.88 & 3\,289 \\
+    \texttt{bonus}            & 2.53 & 58 \\
+    \texttt{digital}          & 3.63 & 548 \\
+    \texttt{documents}        & 2.62 & 395 \\
+    \texttt{gestion\_contrat} & 2.51 & 2\,439 \\
+    \texttt{prix}             & 3.70 & 3\,640 \\
+    \texttt{remboursements}   & 2.90 & 1\,442 \\
+    \texttt{service\_client}  & 2.62 & 9\,583 \\
+    \texttt{sinistres}        & 2.62 & 2\,710 \\
+    \midrule
+    \textbf{Total}            & ---  & 24\,104 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\FloatBarrier
+
 \section{Supervised thematic classification}
-Thematic labels for training come from a deterministic keyword and Word2Vec-augmented detector applied in the notebook, yielding classes such as \texttt{service\_client}, \texttt{prix}, \texttt{sinistres}, and \texttt{remboursements}.
+\label{sec:supervised-thematic}
+Classifiers below predict the \texttt{thematique} column built in Section~\ref{sec:deterministic-labels} (nine labels including \texttt{autre}).
 
 \textbf{TF-IDF + logistic regression:} \texttt{TfidfVectorizer(max\_features=5000, ngram\_range=(1,2))} captures unigrams and bigrams within a controlled vocabulary; \texttt{LogisticRegression(max\_iter=500, random\_seed=42)} provides a strong linear baseline with calibrated probabilities under mild sparsity; see the vectorizer documentation~\cite{ref:sklearn-tfidf}.
 
 \textbf{Fine-tuned DistilBERT:} The base checkpoint \texttt{distilbert-base-multilingual-cased}~\cite{ref:distilbert} matches the French (and mixed) text while remaining lighter than full BERT. Training uses the Hugging Face \texttt{Trainer} API~\cite{ref:hf-trainer} with \texttt{MAX\_LEN=128} (sufficient for lemmatized reviews and standard for DistilBERT fine-tunes), learning rate $2\times 10^{-5}$, batch sizes 16 (train) and 32 (eval), two epochs, evaluation each epoch, no checkpoint saving to disk during training, mixed precision when CUDA is available, and a stratified 80/20 split. These choices follow widespread practice for sentence classification on transformer encoders~\cite{ref:distilbert}. The fine-tuned weights are saved under \texttt{artifacts/distilbert\_thematic/} for the application.
 
+\textbf{Results (notebook Section~7, held-out test set).} On the same stratified split with 4{,}821 test examples, the linear TF-IDF baseline reaches about 90\% accuracy and a macro-averaged F1 of about 0.69, while weighted F1 stays near 0.89---the gap between macro and weighted scores reflects class imbalance: frequent themes such as \texttt{service\_client} are easy to recover, but rarer labels remain harder for a bag-of-words model. The fine-tuned DistilBERT raises accuracy to about 97\% with macro F1 near 0.95 and weighted F1 near 0.97 (see the notebook's Section~7.3 bar comparison). The confusion matrix (Figure~\ref{fig:distilbert-cm}) is strongly diagonal; remaining errors are small in absolute terms and often involve neighbouring semantics (e.g.\ \texttt{remboursements} vs.\ \texttt{service\_client}, or \texttt{gestion\_contrat} vs.\ \texttt{autre}).
+
+\textbf{Why DistilBERT in the Streamlit app.} The application tab shows calibrated theme probabilities for arbitrary pasted reviews, so the stronger contextual model is preferred over TF-IDF + logistic regression despite the latter's simplicity and speed. DistilBERT captures word order and phrasing beyond n-gram counts, which matters for short, idiomatic French insurance language. Relative to full BERT, DistilBERT keeps fewer parameters and faster inference, which is important because the single-review pipeline already loads separate models for summarization and sentiment; a lighter encoder reduces end-to-end latency and memory use while preserving the accuracy gains observed on the test set.
+
+\begin{figure}[H]
+  \centering
+  % Fichier présent dans report/ (copie) pour Overleaf / outils où le CWD n’est pas report/;
+  % sinon la version sous screenshots/ (même nom, orthographe Confustion…).
+  \includegraphics[width=0.88\linewidth]{ConfustionMatrixDistilBERT.png}
+  \caption{Fine-tuned DistilBERT: confusion matrix on the test set (nine thematic labels).}
+  \label{fig:distilbert-cm}
+\end{figure}
+
+\FloatBarrier
+
 \section{Streamlit application architecture}
-Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab runs preprocessing, DistilBERT thematic probabilities, a French summarizer, a multilingual sentiment head, and similar-review retrieval. The \textbf{RAG} tab embeds chunked reviews and calls a local LLM for grounded answers.
+Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab runs preprocessing, DistilBERT thematic probabilities (metrics and rationale in \S\ref{sec:supervised-thematic}), a French summarizer, a multilingual sentiment head, and similar-review retrieval. The \textbf{RAG} tab embeds chunked reviews and calls a local LLM for grounded answers.
 
 \begin{figure}[htbp]
 \centering
