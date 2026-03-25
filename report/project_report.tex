@@ -176,7 +176,7 @@ Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab ru
   % Top: input, then wide preprocess (matches widened bottom row)
   \node[box, minimum width=2.1cm] (inp) {User input};
   \node[box, minimum width=10.1cm, below=0.38cm of inp] (prep)
-    {Preprocess\\\texttt{\scriptsize Same text processing than in the experimetational notebook}};
+    {Preprocess\\\texttt{\scriptsize Same text processing than in the experimental notebook}};
   % Junction just under preprocess (orthogonal fan-out, no edge crossing boxes)
   \coordinate (hub) at ($(prep.south)+(0,-0.14)$);
   \draw[arr] (inp) -- (prep);
@@ -197,7 +197,7 @@ Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab ru
 
 \textbf{Sentiment:} uses \texttt{nlptown/bert-base-multilingual-uncased-sentiment}~\cite{ref:sentiment-bert} (five-star heads); star predictions are mapped to coarse polarity for display.
 
-\textbf{Similar reviews:} \texttt{rank\_bm25} implements Okapi BM25~\cite{ref:bm25} over French-tokenized corpus rows (default cap 4{,}000 rows for latency). The bi-encoder is \texttt{sentence-transformers/all-MiniLM-L6-v2}~\cite{ref:minilm-l6} (384-d, efficient English-oriented sentence embeddings; acceptable here for shared insurance vocabulary). Pipeline: top 50 BM25 $\rightarrow$ top 25 by cosine similarity $\rightarrow$ top 10 pool $\rightarrow$ optional Ollama rerank with \texttt{llama3.2}~\cite{ref:ollama-llama}, temperature 0.1, short \texttt{num\_predict} for a numeric similarity score, yielding five final hits.
+\textbf{Similar reviews:} It is important to note that this search algorithm was developed in a previous project (see the written report from Project 1 for more information).\texttt{rank\_bm25} implements Okapi BM25~\cite{ref:bm25} over French-tokenized corpus rows (default cap 4{,}000 rows for latency). The bi-encoder is \texttt{sentence-transformers/all-MiniLM-L6-v2}~\cite{ref:minilm-l6} (384-d, efficient English-oriented sentence embeddings; acceptable here for shared insurance vocabulary). Pipeline: top 50 BM25 $\rightarrow$ top 25 by cosine similarity $\rightarrow$ top 10 pool $\rightarrow$ optional Ollama rerank with \texttt{llama3.2}~\cite{ref:ollama-llama}, temperature 0.1, short \texttt{num\_predict} for a numeric similarity score, yielding five final hits.
 
 \textbf{RAG:} Chunks default to 90 words with 20-word overlap. Embeddings use \path{paraphrase-multilingual-MiniLM-L12-v2}~\cite{ref:paraphrase-l12} (multilingual semantic search, 384-d). Retrieval is cosine similarity on L2-normalized vectors; generation uses Ollama \texttt{llama3.2}~\cite{ref:ollama-llama} with temperature 0.3 and bounded context in the user prompt. Index build parameters are fingerprinted so stale indices are detectable when CSV or hyperparameters change.
 
