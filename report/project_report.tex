@@ -52,15 +52,15 @@ This report describes an end-to-end natural language processing project on Frenc
 The corpus consists of French reviews with metadata such as insurer (\texttt{assureur}), rating (\texttt{note}), product type, and publication dates. The analytical goal is to surface recurring themes (claims, customer service, pricing, reimbursements, etc.), compare classical and transformer-based classifiers, and expose the results through an interactive tool suitable for qualitative exploration.
 
 \section{``Cleaned'' data and time-saving scale variables}
-The exported ``cleaned'' table is the result of a pragmatic pipeline rather than a full pass over every row of the original CSV. To respect time constraints during development, the notebook applies \textbf{scale factors} to expensive steps: spell correction uses a random fraction \texttt{SPELL\_SCALE = 0.01} (one percent of rows), and English translation uses \texttt{TRANSLATE\_SCALE = 0.005}. French abstractive summaries with BARThez use \texttt{RESUME\_FRAC = 0.02}. Setting these parameters to \texttt{1.0} would process the entire dataset; in a real deployment one would typically validate the stack on a subset, then switch the scales to full coverage for the final artifact. The Streamlit preprocessing path (\texttt{review\_preprocess.py}) mirrors the core text normalization used for thematic modeling (lowercasing, punctuation removal, NLTK tokenization, French stopwords, \texttt{simplemma} lemmatization) and does not depend on those partial corrections for inference.
+The exported ``cleaned'' table comes from a pragmatic pipeline with \textbf{scale factors} on the most expensive steps: spell correction uses \texttt{SPELL\_SCALE = 0.01}, translation \texttt{TRANSLATE\_SCALE = 0.005}, and French abstractive summaries \texttt{RESUME\_FRAC = 0.02}. In a final production pass, these values would simply be set to \texttt{1.0}. The Streamlit preprocessing path (\texttt{review\_preprocess.py}) reuses the core normalization needed for thematic inference and does not depend on those partial corrections.
 
 \section{Preprocessing for modeling}
-Token-level preprocessing follows a fixed recipe aligned with the notebook: apostrophes are normalized, punctuation is stripped, tokens are filtered by length and digits, and lemmas are produced with \texttt{simplemma} for French. Stopwords come from the notebook artifact when available, otherwise NLTK French stopwords. This design favors a compact vocabulary for bag-of-words and embedding training while preserving insurance-related terms that carry sentiment and topic signal.
+Token-level preprocessing follows a fixed recipe: apostrophe normalization, punctuation removal, length and digit filtering, French lemmatization with \texttt{simplemma}, and stopword removal (notebook artifact when available, otherwise NLTK). The goal is to keep a compact vocabulary while preserving insurance-specific signal.
 
-\textbf{Lemmatization vs.\ stemming.} French is morphologically rich; rule-based stemmers (e.g.\ Snowball) often truncate surface forms to arbitrary stems that are neither valid words nor unique lemmas, which can merge unrelated senses or split related ones. Lemmatization maps inflected tokens to a canonical dictionary form using linguistic knowledge, yielding tokens that remain human-readable and stable across conjugations and agreements (\textit{assur\'e}, \textit{assur\'es}, \textit{assurer} $\rightarrow$ a single lemma where appropriate). That choice improves interpretability of LDA topics, TF-IDF features, and Word2Vec neighborhoods, and reduces spurious vocabulary fragmentation compared with aggressive stemming.
+\textbf{Lemmatization vs.\ stemming.} Because French is morphologically rich, stemming often produces opaque roots and merges unrelated forms. Lemmatization keeps readable canonical forms, improves interpretability for LDA, TF-IDF, and Word2Vec, and reduces vocabulary fragmentation.
 
 \section{Exploratory analysis and n-grams}
-Unigrams, bigrams, and trigrams were compared before and after cleaning using \texttt{CountVectorizer} with \texttt{max\_features=50} on a sample of 5{,}000 raw texts versus all processed texts. The cap at 50 keeps only the most frequent n-grams for each order so the bar charts stay legible; this step is purely exploratory visualization and is unrelated to the much larger vocabularies used later for supervised models (e.g.\ TF-IDF with thousands of features). Figures~\ref{fig:ngrams} and~\ref{fig:yearly} are placed immediately below; they belong to this section and precede the embedding analysis.
+Unigrams, bigrams, and trigrams were compared before and after cleaning with \texttt{CountVectorizer} (\texttt{max\_features=50}) on a sample of 5{,}000 raw texts versus all processed texts. This cap keeps the plots readable; it is only for EDA and is unrelated to the larger vocabularies used later for supervised learning.
 
 \begin{figure}[H]
   \centering
@@ -83,14 +83,14 @@ Unigrams, bigrams, and trigrams were compared before and after cleaning using \t
   \label{fig:yearly}
 \end{figure}
 
-\textbf{Reading the figures.} Figure~\ref{fig:ngrams} echoes the notebook comparison: \emph{before} cleaning, the top token barcodes are noisier---punctuation-driven fragments, duplicated morphological variants, and very generic French forms still compete for mass. \emph{After} lemmatization and filtering, mass shifts toward lemmas that carry insurance semantics (\textit{contrat}, \textit{sinistre}, \textit{remboursement}, \textit{service}, etc.), so each row of panels is easier to read as a sanity check that preprocessing aligns the vocabulary with downstream topic and embedding models. The left panel of Figure~\ref{fig:yearly} shows that star ratings are \emph{not} uniform: low and high scores are heavily represented relative to the mid-scale, with an overall mean close to 2.8--2.9 on the cleaned table (as printed in the notebook after row filtering), so any classifier or sampler must tolerate class imbalance. The right panel aggregates mean ratings by year for the busiest insurers; trajectories differ across companies and years, which cautions against treating the corpus as a single homogeneous stream when interpreting sentiment or themes.
+\textbf{Reading the figures.} Cleaning and lemmatization shift the most frequent n-grams toward clearer insurance-related vocabulary. Ratings are also unevenly distributed, with low and high scores over-represented relative to the middle of the scale, and yearly averages differ across major insurers; both observations matter when interpreting downstream themes and model performance.
 
 \FloatBarrier
 
 \section{Word2Vec and FastText embeddings}
-\textbf{Word2Vec} was trained with Gensim on lemmatized review tokens: \texttt{vector\_size=200}, \texttt{window=5}, \texttt{min\_count=7}, \texttt{workers=1}, \texttt{seed=42} (these choices are results of empirical trials). The dimension and context window follow common defaults for medium-sized corpora; \texttt{min\_count} suppresses rare tokens that inflate noise. Technical reference~\cite{ref:gensim-w2v}. Two-dimensional PCA projections color words by average rating help interpret semantic neighborhoods (Figure~\ref{fig:w2vft}).
+\textbf{Word2Vec} was trained with Gensim on lemmatized review tokens using \texttt{vector\_size=200}, \texttt{window=5}, \texttt{min\_count=7}, \texttt{workers=1}, and \texttt{seed=42} (these values were chosen through empirical trials). The embedding dimension and context window follow common defaults for medium-sized corpora, while \texttt{min\_count} suppresses rare tokens that would otherwise add noise. See technical reference~\cite{ref:gensim-w2v}. Two-dimensional PCA projections, in which words are colored by average rating, help interpret semantic neighborhoods (Figure~\ref{fig:w2vft}).
 
-\textbf{FastText} French crawl vectors (\texttt{cc.fr.300}, 300 dimensions) were loaded without additional training to compare static subword-aware embeddings with the domain-trained Word2Vec model. Documentation and download policy~\cite{ref:fasttext-vec}. FastText handles morphological variants and OOV pieces via character n-grams, which often yields different nearest neighbors than a corpus-specific Word2Vec model. When the same words are coloured by average review score, the spatial separation between high- and low-rating regions is markedly weaker for these pretrained crawl vectors than for in-domain Word2Vec (see Section~\ref{sec:qual-emb}).
+\textbf{FastText} French crawl vectors (\texttt{cc.fr.300}) were loaded without additional training to contrast a \textbf{pretrained} subword model with the domain-trained Word2Vec space~\cite{ref:fasttext-vec}.FastText handles morphological variants and OOV pieces via character n-grams, which often yields different nearest neighbors than a corpus-specific Word2Vec model. In the figures below, the separation by average rating is weaker than for Word2Vec.
 
 \begin{figure}[htbp]
   \centering
@@ -102,29 +102,31 @@ Unigrams, bigrams, and trigrams were compared before and after cleaning using \t
     \includegraphics[width=\linewidth]{FastText _PCA_2Dprojection.png}
     \caption{FastText PCA (2D), same sampling logic.}
   \end{subfigure}
-  \caption{PCA projections of embedding spaces (color encodes average rating where available).}
+  \caption{PCA projections of embedding spaces (color encodes average rating).}
   \label{fig:w2vft}
 \end{figure}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
   \begin{subfigure}{0.48\textwidth}
     \includegraphics[width=\linewidth]{w2w_3D_projector_1.png}
-    \caption{TensorBoard-style 3D view (Word2Vec export).}
+    \caption{TensorBoard PCA 3D projection (Word2Vec).}
   \end{subfigure}\hfill
   \begin{subfigure}{0.48\textwidth}
     \includegraphics[width=\linewidth]{FastText _3D.png}
-    \caption{3D projection for FastText vectors.}
+    \caption{TensorBoard PCA 3D projection (FastText).}
   \end{subfigure}
-  \caption{Three-dimensional embedding visualizations for exploration.}
+  \caption{Three-dimensional embedding visualizations for exploration (color encodes average rating, yellow = low,  blue = high).}
   \label{fig:emb3d}
 \end{figure}
 
+\FloatBarrier
+
 \section{Qualitative embedding figures analysis}
 \label{sec:qual-emb}
-Thematic probes in the trained Word2Vec space show that lexicon associated with opposite customer experiences tends to occupy distant regions of the vector space. For example, \textit{refus} (denial, rejection) anchors a neighborhood of terms linked to dissatisfaction and conflict, whereas \textit{amabilité} (kindness, courtesy) sits among vocabulary typical of positive service descriptions. In the TensorBoard views, these seeds and their neighbors therefore appear as two poles: negatively connoted words cluster away from positively connoted ones, which is consistent with distributional semantics capturing sentiment and interaction quality from co-occurrence in reviews.
+Thematic probes in the Word2Vec space suggest that vocabulary associated with opposite customer experiences occupies different regions. For instance, \textit{refus} clusters with conflict-related terms, while \textit{amabilité} sits closer to positive service language.
 
-This separation aligns with the global structure visible in the PCA and 3D panels above (Figures~\ref{fig:w2vft} and~\ref{fig:emb3d}), but \textbf{much more clearly for domain-trained Word2Vec than for pretrained FastText}. In both two-dimensional PCA plots and three-dimensional projector renderings, points are coloured by the average star rating of reviews in which each word appears (the \texttt{viridis} scale). For \textbf{Word2Vec}, one observes a clear stratification: high-rated contexts tend toward one end of the palette (bluer tones), while low-rated contexts shift toward the other (yellower tones), so the delineation by score is \textbf{visually strong and interpretable}. For \textbf{FastText} (Common Crawl French, not fine-tuned on reviews), the same colouring yields a \textbf{far muddier} picture: blue and yellow points intermingle, and the boundary between score-induced regions is \textbf{barely visible} compared with Word2Vec. That gap is expected, crawl embeddings optimise general French usage, not insurer-specific sentiment, whereas Word2Vec was trained directly on this corpus, so co-occurrence with satisfied versus dissatisfied language is baked into the geometry. The cloud is never perfectly linear even for Word2Vec, polysemy and mixed opinions blur boundaries, but the rating-graded manifold is unmistakable there, and only weakly echoed in the static FastText views, which is why thematic probes such as \textit{refus} versus \textit{amabilité} read most clearly against the Word2Vec background.
+This pattern matches the PCA and 3D views in Figures~\ref{fig:w2vft} and~\ref{fig:emb3d}: colour separation by average rating is clear in the in-domain Word2Vec space and much weaker in pretrained FastText. That difference is expected, since Word2Vec was trained directly on the review corpus whereas FastText captures more general French usage.
 
 \begin{figure}[htbp]
   \centering
@@ -147,11 +149,11 @@ Latent Dirichlet Allocation used bigram documents, a dictionary/TF-IDF corpus, a
 
 \section{Deterministic thematic labels for supervision}
 \label{sec:deterministic-labels}
-Supervised models in the notebook (Section~7) need a target column \texttt{thematique}. The project uses a \textbf{deterministic weak-labelling} procedure so that labels are \textbf{reproducible}, \textbf{cheap}, and \textbf{aligned with insurance-facing axes} (claims, pricing, reimbursements, customer service, contract administration, digital channels, documents, bonuses, and a residual \texttt{autre} class).
+Supervised models in the notebook (Section~7) need a target column \texttt{thematique}. The project therefore uses a \textbf{deterministic weak-labelling} procedure: reproducible, inexpensive, and aligned with insurance-facing axes.
 
-\textbf{Rationale.} Keyword rules are easy to audit and version in code; combining them with a small Word2Vec neighbourhood expansion captures near-synonyms and domain variants without hand-curating every surface form. The trade-off is explicit: a single theme per review, a fixed priority order when several rules fire, and inevitable noise---yet the signal is strong enough for a fine-tuned encoder to \textbf{generalise beyond literal keyword hits}, which is the main reason to learn a classifier on top of these targets.
+\textbf{Rationale.} Keyword rules are easy to audit, and a small Word2Vec neighbourhood expansion captures close variants without hand-curating every form. The trade-off is simple: one label per review, fixed priority when several rules match, and some label noise.
 
-\textbf{Construction (notebook).} A dictionary \texttt{THEMATIQUES} maps each theme to \textbf{truncated or stem-like keyword fragments} consistent with processed text (\texttt{avis\_traite}). For each theme, the first two seed keywords that appear in the trained Word2Vec vocabulary are used to pull up to three \texttt{most\_similar} neighbours each; those neighbours are appended to the theme list (if not already present) to widen coverage without exploding the rule set. The function \texttt{detect\_thematique} tokenises the review, walks themes in a \textbf{fixed order}, and assigns the \textbf{first} theme for which any keyword appears as a whole token; if none match, the label is \texttt{autre}.
+\textbf{Construction (notebook).} A dictionary \texttt{THEMATIQUES} maps each theme to truncated keyword fragments consistent with \texttt{avis\_traite}. The first two seeds of each theme are optionally expanded with up to three Word2Vec neighbours each, then \texttt{detect\_thematique} scans themes in fixed order and assigns the first matching label; otherwise it returns \texttt{autre}.
 
 
 \begin{table}[H]
@@ -181,15 +183,24 @@ Supervised models in the notebook (Section~7) need a target column \texttt{thema
 
 \section{Supervised thematic classification}
 \label{sec:supervised-thematic}
-Classifiers below predict the \texttt{thematique} column built in Section~\ref{sec:deterministic-labels} (nine labels including \texttt{autre}).
+This section compares \textbf{two alternative supervised approaches} trained to predict the same \texttt{thematique} column built in Section~\ref{sec:deterministic-labels}. We tested a \textbf{classical sparse-text model} and a \textbf{transformer model} independently, then compares them on the same stratified 80/20 split to decide which one is most suitable for the Streamlit application.
 
-\textbf{TF-IDF + logistic regression:} \texttt{TfidfVectorizer(max\_features=5000, ngram\_range=(1,2))} captures unigrams and bigrams within a controlled vocabulary; \texttt{LogisticRegression(max\_iter=500, random\_seed=42)} provides a strong linear baseline with calibrated probabilities under mild sparsity; see the vectorizer documentation~\cite{ref:sklearn-tfidf}.
+\textbf{Approach 1: TF-IDF + logistic regression.} The first solution is a standard bag-of-words baseline: \texttt{TfidfVectorizer(max\_features=5000, ngram\_range=(1,2))} converts the preprocessed reviews into sparse unigram/bigram features, and \texttt{LogisticRegression(max\_iter=500, random\_state=42)}~\cite{ref:sklearn-tfidf} learns a linear separator between thematic classes. This approach is simple, fast, and interpretable, so it is a useful reference point for judging whether a heavier neural model is really necessary.
 
-\textbf{Fine-tuned DistilBERT:} The base checkpoint \texttt{distilbert-base-multilingual-cased}~\cite{ref:distilbert} matches the French (and mixed) text while remaining lighter than full BERT. Training uses the Hugging Face \texttt{Trainer} API~\cite{ref:hf-trainer} with \texttt{MAX\_LEN=128} (sufficient for lemmatized reviews and standard for DistilBERT fine-tunes), learning rate $2\times 10^{-5}$, batch sizes 16 (train) and 32 (eval), two epochs, evaluation each epoch, no checkpoint saving to disk during training, mixed precision when CUDA is available, and a stratified 80/20 split. These choices follow widespread practice for sentence classification on transformer encoders~\cite{ref:distilbert}. The fine-tuned weights are saved under \texttt{artifacts/distilbert\_thematic/} for the application.
+\textbf{Approach 2: fine-tuned DistilBERT.} We fine-tuned \texttt{distilbert-base-multilingual-cased}~\cite{ref:distilbert} end to end with the Hugging Face \texttt{Trainer} API~\cite{ref:hf-trainer}. The notebook uses \texttt{MAX\_LEN=128}, learning rate $2\times 10^{-5}$, batch sizes 16/32, two epochs, evaluation at each epoch, and the same stratified split as the classical baseline. The resulting weights are stored in \texttt{artifacts/distilbert\_thematic/} for later reuse in the application.
 
-\textbf{Results (notebook Section~7, held-out test set).} On the same stratified split with 4{,}821 test examples, the linear TF-IDF baseline reaches about 90\% accuracy and a macro-averaged F1 of about 0.69, while weighted F1 stays near 0.89---the gap between macro and weighted scores reflects class imbalance: frequent themes such as \texttt{service\_client} are easy to recover, but rarer labels remain harder for a bag-of-words model. The fine-tuned DistilBERT raises accuracy to about 97\% with macro F1 near 0.95 and weighted F1 near 0.97 (see the notebook's Section~7.3 bar comparison). The confusion matrix (Figure~\ref{fig:distilbert-cm}) is strongly diagonal; remaining errors are small in absolute terms and often involve neighbouring semantics (e.g.\ \texttt{remboursements} vs.\ \texttt{service\_client}, or \texttt{gestion\_contrat} vs.\ \texttt{autre}).
+\textbf{Comparison on the held-out test set.} Both models are evaluated on the same 4{,}821-review test split. The TF-IDF baseline reaches about 90\% accuracy, macro F1 $\approx 0.69$, and weighted F1 $\approx 0.89$. The classification report shows why macro F1 is much lower than weighted F1: common classes such as \texttt{service\_client}, \texttt{prix}, or \texttt{sinistres} are predicted reasonably well, but rarer or less distinct labels suffer much more.
 
-\textbf{Why DistilBERT in the Streamlit app.} The application tab shows calibrated theme probabilities for arbitrary pasted reviews, so the stronger contextual model is preferred over TF-IDF + logistic regression despite the latter's simplicity and speed. DistilBERT captures word order and phrasing beyond n-gram counts, which matters for short, idiomatic French insurance language. Relative to full BERT, DistilBERT keeps fewer parameters and faster inference, which is important because the single-review pipeline already loads separate models for summarization and sentiment; a lighter encoder reduces end-to-end latency and memory use while preserving the accuracy gains observed on the test set.
+Fine-tuned DistilBERT performs much better on that same split: accuracy rises to about 97\%, macro F1 to about 0.95, and weighted F1 to about 0.97. Figure~\ref{fig:model-comparison} summarizes the gap between the two approaches. The gain is not only global: it is also visible on minority or semantically close classes, which is exactly where the bag-of-words approach loses the most information. The confusion matrix in Figure~\ref{fig:distilbert-cm} is strongly diagonal.
+
+\textbf The best model is not simply the fastest one, but the one that generalizes most reliably beyond explicit keyword overlap. The comparison shows that DistilBERT is clearly superior to the classical ML baseline on the shared test set. It also remains lighter than full BERT, so inference is still practical in an application that already runs additional models for summarization and sentiment analysis. For that reason, the Streamlit app keeps the fine-tuned DistilBERT classifier rather than the TF-IDF + logistic regression alternative.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.78\linewidth]{ModelsComparaison.png}
+  \caption{Held-out test-set comparison of the two supervised approaches: TF-IDF + logistic regression versus fine-tuned DistilBERT.}
+  \label{fig:model-comparison}
+\end{figure}
 
 \begin{figure}[H]
   \centering
@@ -245,18 +256,19 @@ Figure~\ref{fig:arch} sketches the main flows. The \textbf{single-review} tab ru
 \label{fig:arch}
 \end{figure}
 
-\textbf{Summarization:} uses \texttt{moussaKam/barthez-orangesum-abstract}~\cite{ref:barthez} (French BART-style model). Generation uses \texttt{do\_sample=False}, dynamic \texttt{max\_length} and \texttt{min\_length} from review length, truncation, and a minimum word threshold so very short texts skip summarization.
+\textbf{Summarization:} uses \texttt{moussaKam/barthez-orangesum-abstract}~\cite{ref:barthez} with deterministic generation and length bounds derived from review length.
 
-\textbf{Sentiment:} uses \texttt{nlptown/bert-base-multilingual-uncased-sentiment}~\cite{ref:sentiment-bert} (five-star heads); star predictions are mapped to coarse polarity for display.
+\textbf{Sentiment:} uses \texttt{nlptown/bert-base-multilingual-uncased-sentiment}~\cite{ref:sentiment-bert}; five-star outputs are mapped to coarse polarity.
 
-\textbf{Similar reviews:} It is important to note that this search algorithm was developed in a previous project (see the written report from Project 1 for more information).\texttt{rank\_bm25} implements Okapi BM25~\cite{ref:bm25} over French-tokenized corpus rows (default cap 4{,}000 rows for latency). The bi-encoder is \texttt{sentence-transformers/all-MiniLM-L6-v2}~\cite{ref:minilm-l6} (384-d, efficient English-oriented sentence embeddings; acceptable here for shared insurance vocabulary). Pipeline: top 50 BM25 $\rightarrow$ top 25 by cosine similarity $\rightarrow$ top 10 pool $\rightarrow$ optional Ollama rerank with \texttt{llama3.2}~\cite{ref:ollama-llama}, temperature 0.1, short \texttt{num\_predict} for a numeric similarity score, yielding five final hits.
+\textbf{Similar reviews:} The retrieval stack reuses the Project~1 approach: BM25~\cite{ref:bm25} over tokenized reviews (cap 4{,}000 rows for latency), then semantic reranking with \path{sentence-transformers/all-MiniLM-L6-v2}~\cite{ref:minilm-l6}, and optional Ollama reranking with \texttt{llama3.2}~\cite{ref:ollama-llama}. The final interface returns five matches.
 
-\textbf{RAG:} Chunks default to 90 words with 20-word overlap. Embeddings use \path{paraphrase-multilingual-MiniLM-L12-v2}~\cite{ref:paraphrase-l12} (multilingual semantic search, 384-d). Retrieval is cosine similarity on L2-normalized vectors; generation uses Ollama \texttt{llama3.2}~\cite{ref:ollama-llama} with temperature 0.3 and bounded context in the user prompt. Index build parameters are fingerprinted so stale indices are detectable when CSV or hyperparameters change.
+\textbf{RAG:} Reviews are chunked into 90-word windows with 20-word overlap, embedded with \path{paraphrase-multilingual-MiniLM-L12-v2}~\cite{ref:paraphrase-l12}, retrieved by cosine similarity, and passed to Ollama \texttt{llama3.2}~\cite{ref:ollama-llama} for grounded answers.
 
-\textbf{Demonstration.} This written overview cannot capture every interaction detail of the Streamlit interface (tab layout, index build button, insurer filter, error states when Ollama is offline, etc.). A separate \emph{explanatory video} accompanies the project: it walks through the application end-to-end, demonstrates the RAG tab with sample questions, and shows the single-review pipeline on real pasted text. Refer to that recording for a precise, step-by-step view of how the app is operated and what to expect on screen.
+\textbf{Demonstration.} This written overview cannot capture every interaction detail of the Streamlit
+interface (tab layout, index build button, insurer filter, error states when Ollama is offline, etc). A separate explanatory video shows the interface end to end, including the RAG tab and the single-review workflow.
 
 \section{Limitations and conclusion}
-The pipeline mixes research prototypes (partial spell-check and translation coverage, capped similar-review corpus, RAG document limits) with solid core modeling (stratified splits, coherence-driven LDA, DistilBERT fine-tuning). Production use would require full-data cleaning, systematic evaluation on held-out temporal splits, monitoring of Ollama latency and failures, and privacy review of third-party model endpoints if any were introduced. Overall, the project demonstrates a coherent stack from classical NLP through transformers to retrieval-augmented generation, with explicit hyperparameters and traceable model cards.
+The pipeline mixes research prototypes (partial spell-check and translation coverage, capped similar-review corpus, RAG document limits) with core modeling (stratified splits, coherence-driven LDA, DistilBERT fine-tuning). Production use would require full-data cleaning, systematic evaluation on held-out temporal splits, monitoring of Ollama latency and failures, and privacy review of third-party model endpoints if any were introduced. Overall, the project demonstrates a coherent stack from classical NLP through transformers to retrieval-augmented generation.
 
 
 \phantomsection
