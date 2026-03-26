@@ -2,15 +2,16 @@ Using RAG in the Streamlit Application
 
   Code for the app (RAG, preprocessing, DistilBERT inference, similar-reviews pipeline) is under **`streamlit_app/`**.
 
-  1. Install Ollama: https://ollama.com
-  2. **Keep Ollama running** in backgroud.
+  1. `pip install -r requirements.txt`
+  2. Install Ollama: https://ollama.com
+  3. **Keep Ollama running** in backgroud.
      - Windows / macOS: open the Ollama application.
      - Linux: if needed, run in a terminal:  ollama serve
-  3. Download the model once:
+  4. Download the model once:
         `ollama pull llama3.2`
-  4. Start Streamlit (from the project root):
+  5. Start Streamlit (from the project root):
         `python -m streamlit run streamlit_app/app_streamlit.py`
-  5. In the **RAG / QA** tab: enter a question and click “Retrieve & generate answer”.
+  6. In the different tabs: enter a question or a review (see below to copy/paste) and click to generate.
 
 If Ollama isn’t running, answer generation will fail (connection error to the local API,
 usually http://127.0.0.1:11434).
