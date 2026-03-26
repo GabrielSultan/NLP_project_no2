@@ -13,6 +13,8 @@ Using RAG in the Streamlit Application
         `python -m streamlit run streamlit_app/app_streamlit.py`
   6. In the different tabs: enter a question or a review (see below to copy/paste) and click to generate.
 
+Note : The first lunching of the streamlit app on your device can take few minutes !
+
 If Ollama isn’t running, answer generation will fail (connection error to the local API,
 usually http://127.0.0.1:11434).
 
