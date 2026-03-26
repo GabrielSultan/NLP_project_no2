@@ -1,4 +1,4 @@
-# Core
+# Core (notebook + scripts)
 pandas>=1.5.0
 numpy>=1.21.0
 matplotlib>=3.5.0
@@ -10,27 +10,26 @@ openpyxl>=3.0.0
 # NLP
 nltk>=3.8.0
 simplemma>=1.0.0
-snowballstemmer>=2.2.0
 gensim>=4.3.0
 scikit-learn>=1.2.0
 
-# Hugging Face
+# Hugging Face (notebook: translation pipeline, DistilBERT Trainer / inference; streamlit: thematic model)
 transformers>=4.30.0
 torch>=2.0.0
-tensorboard>=2.14.0
+sentencepiece>=0.1.99
+safetensors>=0.4.0
 
-# Spell correction
+# Sentence embeddings (RAG tab, similar-reviews pipeline, scripts/build_rag_index.py)
+sentence-transformers>=2.2.0
+rank-bm25>=0.2.2
+
+# Spell correction (notebook)
 pyspellchecker>=0.7.0
-
-# Interpretation
-shap>=0.42.0
 
 # Application
 streamlit>=1.25.0
 
-# RAG / semantic search (streamlit_app/)
-sentence-transformers>=2.2.0
-rank-bm25>=0.2.2
-
-# Optional — not imported by streamlit_app (uncomment if you need it elsewhere)
+# Optional — uncomment if you use these in a fork or extra notebooks
+# tensorboard>=2.14.0   # HF Trainer logging or local TensorBoard
+# shap>=0.42.0          # model interpretation
 # langchain>=0.1.0
