@@ -2,6 +2,9 @@ Using RAG in the Streamlit Application
 
   Code for the app (RAG, preprocessing, DistilBERT inference, similar-reviews pipeline) is under **`streamlit_app/`**.
 
+IMPORTANT: To run the interactive application, you must first run the notebook!
+The large files used in the application (and generated in the notebook) have been added to the .gitignore file.
+
   1. `pip install -r requirements.txt`
   2. Install Ollama: https://ollama.com
   3. **Keep Ollama running** in backgroud.
